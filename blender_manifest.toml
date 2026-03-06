@@ -1,14 +1,14 @@
 schema_version = "1.0.0"
 
 id = "node_runner"
-version = "0.9.19"
+version = "1.0.0"
 name = "Node Runner"
-tagline = "Tool to easily import and export shader nodes as a string"
+tagline = "Import and export shader & geometry nodes as a string"
 maintainer = "Noah Thiering <noah.thiering@gmail.com>"
 
 type = "add-on"
 
-tags = ["Node", "Material"]
+tags = ["Node", "Material", "Geometry Nodes"]
 
 blender_version_min = "4.2.0"
 

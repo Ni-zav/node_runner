@@ -50,8 +50,9 @@ class MockNode:
 
 class MockNodeTree:
     """A configurable mock node tree."""
-    def __init__(self, name="NodeTree"):
+    def __init__(self, name="NodeTree", bl_idname="ShaderNodeTree"):
         self.name = name
+        self.bl_idname = bl_idname
         self.nodes = MockNodeCollection()
         self.links = MockLinkCollection()
         self.interface = MagicMock()

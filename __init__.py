@@ -1,50 +1,43 @@
 """
-This module adds the function to import and export
-shader nodes from Blender.
+Node Runner — Import & export shader nodes as shareable strings.
 
-It exports the shader nodes to a compressed and base64
-encoded string that can be easily shared via a text
-messager or comments in a video.
+Serializes Blender shader node trees to compressed, base64‑encoded
+strings that can be shared via text, comments, or documentation.
 """
 
-import bpy
-from . import node_runner_deserialize
-from . import node_runner_serialize
+# Operators require bpy which is only available inside Blender.
+# When running tests outside Blender the import is deferred so the
+# test mock infrastructure can patch sys.modules first.
+try:
+    from . import operators
+
+    _HAS_BPY = True
+except ModuleNotFoundError:
+    _HAS_BPY = False
 
 bl_info = {
     "name": "Node Runner",
     "author": "Noah Thiering, Julius Ewert",
-    "version": (0, 9, 19),
-    "blender": (4, 2, 2),
-    "location": "Node Editor Context Menu On Selected Nodes",
-    "description": "Tool to easily import and export shader nodes as a string",
+    "version": (1, 0, 0),
+    "blender": (4, 2, 0),
+    "location": "Node Editor > Context Menu",
+    "description": "Import and export shader & geometry nodes as a string",
     "doc_url": "docs/",
     "category": "Node",
 }
 
+
 def register():
-    """Register classes"""
-    bpy.utils.register_class(node_runner_deserialize.NodeRunnerImportContextMenu)
-    bpy.utils.register_class(node_runner_serialize.NodeRunnerExportContextMenu)
-
-    bpy.utils.register_class(node_runner_deserialize.NodeRunnerImport)
-    bpy.utils.register_class(node_runner_serialize.NodeRunnerExport)
-
-    # Add it to the Shader Editor context menu
-    bpy.types.NODE_MT_context_menu.append(node_runner_deserialize.menu_func_node_runner_import)
-    bpy.types.NODE_MT_context_menu.append(node_runner_serialize.menu_func_node_runner_export)
+    """Register all operators and menu entries."""
+    if _HAS_BPY:
+        operators.register()
 
 
 def unregister():
-    """Unregister classes"""
-    bpy.types.NODE_MT_context_menu.remove(node_runner_serialize.menu_func_node_runner_export)
-    bpy.types.NODE_MT_context_menu.remove(node_runner_deserialize.menu_func_node_runner_import)
+    """Unregister all operators and menu entries."""
+    if _HAS_BPY:
+        operators.unregister()
 
-    bpy.utils.unregister_class(node_runner_serialize.NodeRunnerExport)
-    bpy.utils.unregister_class(node_runner_deserialize.NodeRunnerImport)
-
-    bpy.utils.unregister_class(node_runner_serialize.NodeRunnerExportContextMenu)
-    bpy.utils.unregister_class(node_runner_deserialize.NodeRunnerImportContextMenu)
 
 if __name__ == "__main__":
     register()

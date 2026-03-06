@@ -308,8 +308,9 @@ def deserialize_node(node_data, node_tree, socket_id_map):
     # Node tree must be created before inputs/outputs
     if "node_tree" in node_data:
         nt_data = node_data["node_tree"]
+        tree_type = nt_data.get("tree_type", "ShaderNodeTree")
         new_node.node_tree = bpy.data.node_groups.new(
-            nt_data["name"], "ShaderNodeTree"
+            nt_data["name"], tree_type
         )
         child_key = "child_" + new_node.node_tree.name
         socket_id_map[child_key] = {}
