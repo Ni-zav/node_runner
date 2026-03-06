@@ -13,9 +13,7 @@ tags = ["Node", "Material", "Geometry Nodes"]
 blender_version_min = "5.0.0"
 
 # https://docs.blender.org/manual/en/dev/advanced/extensions/licenses.html
-license = [
-  "SPDX:GPL-3.0-or-later",
-]
+license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
 clipboard = "Copy Node Runner Hash to clipboard"
