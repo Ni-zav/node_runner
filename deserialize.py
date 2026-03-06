@@ -13,9 +13,8 @@ from .constants import READONLY_DESERIALIZE_PROPS, SOCKET_BASE_TYPES
 
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 #  Helpers
-# ---------------------------------------------------------------------------
+
 
 def get_node_socket_base_type(socket_type: str) -> str:
     """Map a specific socket type string to its base type.
@@ -71,7 +70,10 @@ def get_socket_by_identifier(
 
     log.warning(
         "Socket '%s' (name='%s') not found on '%s' (%s)",
-        identifier, name, node.name, direction,
+        identifier,
+        name,
+        node.name,
+        direction,
     )
     return None
 
@@ -97,9 +99,8 @@ def create_interface_socket(node_tree, name, description, in_out, socket_type):
     )
 
 
-# ---------------------------------------------------------------------------
 #  Type-specific deserializers
-# ---------------------------------------------------------------------------
+
 
 def deserialize_color_ramp(node, data):
     """Apply color ramp data to *node*."""
@@ -230,9 +231,8 @@ def deserialize_text(data):
     return text
 
 
-# ---------------------------------------------------------------------------
 #  Input / Output deserializers
-# ---------------------------------------------------------------------------
+
 
 def deserialize_inputs(node, data, node_data, node_tree, socket_id_map):
     """Deserialize input sockets for *node*.
@@ -265,9 +265,7 @@ def deserialize_inputs(node, data, node_data, node_tree, socket_id_map):
             try:
                 node.inputs[i].default_value = value
             except (TypeError, AttributeError):
-                log.debug(
-                    "Could not set input %d on '%s'", i, node.name
-                )
+                log.debug("Could not set input %d on '%s'", i, node.name)
 
 
 def deserialize_outputs(node, data, node_data, node_tree, socket_id_map):
@@ -301,14 +299,11 @@ def deserialize_outputs(node, data, node_data, node_tree, socket_id_map):
             try:
                 node.outputs[i].default_value = value
             except (TypeError, AttributeError):
-                log.debug(
-                    "Could not set output %d on '%s'", i, node.name
-                )
+                log.debug("Could not set output %d on '%s'", i, node.name)
 
 
-# ---------------------------------------------------------------------------
 #  Node deserializer
-# ---------------------------------------------------------------------------
+
 
 def deserialize_node(node_data, node_tree, socket_id_map):
     """Create a new node and apply all serialized properties.
@@ -332,24 +327,20 @@ def deserialize_node(node_data, node_tree, socket_id_map):
     if "node_tree" in node_data:
         nt_data = node_data["node_tree"]
         tree_type = nt_data.get("tree_type", "ShaderNodeTree")
-        new_node.node_tree = bpy.data.node_groups.new(
-            nt_data["name"], tree_type
-        )
+        new_node.node_tree = bpy.data.node_groups.new(nt_data["name"], tree_type)
         child_key = "child_" + new_node.node_tree.name
         socket_id_map[child_key] = {}
-        deserialize_node_tree(
-            new_node.node_tree, nt_data, socket_id_map[child_key]
-        )
+        deserialize_node_tree(new_node.node_tree, nt_data, socket_id_map[child_key])
         # Don't process node_tree again below
         node_data = {k: v for k, v in node_data.items() if k != "node_tree"}
 
     # Property dispatch
     _prop_handlers = {
-        "color_ramp": lambda n, v: deserialize_color_ramp(n, v),
-        "color_mapping": lambda n, v: deserialize_color_mapping(n, v),
-        "texture_mapping": lambda n, v: deserialize_texture_mapping(n, v),
-        "mapping": lambda n, v: deserialize_curve_mapping(n, v),
-        "image": lambda n, v: deserialize_image(n, v),
+        "color_ramp": deserialize_color_ramp,
+        "color_mapping": deserialize_color_mapping,
+        "texture_mapping": deserialize_texture_mapping,
+        "mapping": deserialize_curve_mapping,
+        "image": deserialize_image,
         "inputs": lambda n, v: deserialize_inputs(
             n, v, node_data, node_tree, socket_id_map
         ),
@@ -386,7 +377,9 @@ def deserialize_node(node_data, node_tree, socket_id_map):
             except (TypeError, AttributeError, KeyError) as exc:
                 log.debug(
                     "Cannot set '%s' on '%s': %s",
-                    prop_name, new_node.name, exc,
+                    prop_name,
+                    new_node.name,
+                    exc,
                 )
 
     # Now apply deferred socket defaults
@@ -396,9 +389,8 @@ def deserialize_node(node_data, node_tree, socket_id_map):
     return new_node
 
 
-# ---------------------------------------------------------------------------
 #  Link deserializer
-# ---------------------------------------------------------------------------
+
 
 def deserialize_link(node_map, link_data, socket_id_map):
     """Resolve link endpoints from serialized data.
@@ -415,8 +407,11 @@ def deserialize_link(node_map, link_data, socket_id_map):
     to_node = node_map.get(link_data["to_node"])
 
     if from_node is None or to_node is None:
-        log.warning("Link references missing node(s): %s -> %s",
-                     link_data["from_node"], link_data["to_node"])
+        log.warning(
+            "Link references missing node(s): %s -> %s",
+            link_data["from_node"],
+            link_data["to_node"],
+        )
         return None, None
 
     out_sock = get_socket_by_identifier(
@@ -436,9 +431,8 @@ def deserialize_link(node_map, link_data, socket_id_map):
     return out_sock, in_sock
 
 
-# ---------------------------------------------------------------------------
 #  Frame handling: topological ordering for nested frames
-# ---------------------------------------------------------------------------
+
 
 def _topological_sort_frames(nodes_data):
     """Return frame node names in parent-first order.
@@ -447,8 +441,7 @@ def _topological_sort_frames(nodes_data):
     exists before any child frame.
     """
     frame_names = [
-        name for name, data in nodes_data.items()
-        if data.get("type") == "NodeFrame"
+        name for name, data in nodes_data.items() if data.get("type") == "NodeFrame"
     ]
 
     # Build parent -> children mapping
@@ -475,9 +468,8 @@ def _topological_sort_frames(nodes_data):
     return ordered
 
 
-# ---------------------------------------------------------------------------
 #  Node tree deserializer
-# ---------------------------------------------------------------------------
+
 
 def deserialize_node_tree(node_tree, data, socket_id_map):
     """Recreate a full node tree from serialized data.
@@ -537,9 +529,7 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
                 frame_node.location = loc
 
     # ---- Phase 2: Create all non-frame nodes ----
-    non_frame_names = [
-        name for name in nodes_data if name not in frame_name_remap
-    ]
+    non_frame_names = [name for name in nodes_data if name not in frame_name_remap]
 
     # Update parent references to new frame names
     for name in non_frame_names:
@@ -584,24 +574,27 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
                 # Blender API: links.new(input_socket, output_socket)
                 node_tree.links.new(in_sock, out_sock)
                 links_created += 1
-            except Exception as exc:
+            except (RuntimeError, TypeError, ValueError) as exc:
                 log.warning(
                     "Failed to create link %s.%s -> %s.%s: %s",
-                    link_data.get("from_node"), link_data.get("from_socket"),
-                    link_data.get("to_node"), link_data.get("to_socket"),
+                    link_data.get("from_node"),
+                    link_data.get("from_socket"),
+                    link_data.get("to_node"),
+                    link_data.get("to_socket"),
                     exc,
                 )
         else:
             log.warning(
                 "Could not resolve link endpoints: %s.%s -> %s.%s"
                 " (out_sock=%s, in_sock=%s)",
-                link_data.get("from_node"), link_data.get("from_socket"),
-                link_data.get("to_node"), link_data.get("to_socket"),
-                out_sock, in_sock,
+                link_data.get("from_node"),
+                link_data.get("from_socket"),
+                link_data.get("to_node"),
+                link_data.get("to_socket"),
+                out_sock,
+                in_sock,
             )
-    log.debug(
-        "Created %d/%d links", links_created, len(links_data)
-    )
+    log.debug("Created %d/%d links", links_created, len(links_data))
 
 
 def _set_location_from_absolute(node, abs_loc):

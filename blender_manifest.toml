@@ -15,5 +15,16 @@ blender_version_min = "5.0.0"
 # https://docs.blender.org/manual/en/dev/advanced/extensions/licenses.html
 license = ["SPDX:GPL-3.0-or-later"]
 
+[build]
+paths = [
+  "__init__.py",
+  "operators.py",
+  "constants.py",
+  "encoding.py",
+  "serialize.py",
+  "deserialize.py",
+  "LICENSE",
+]
+
 [permissions]
 clipboard = "Copy Node Runner Hash to clipboard"

@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 from mathutils import Vector as MockVector
 
 
-# ---------------------------------------------------------------------------
+
 #  Helper factories
-# ---------------------------------------------------------------------------
+
 
 class MockRNAProperty:
     """Minimal stand-in for ``bpy.types.Property``."""

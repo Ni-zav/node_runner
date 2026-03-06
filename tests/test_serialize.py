@@ -1,7 +1,10 @@
 """Tests for the serialization module."""
 
-from tests.helpers import MockNode, MockNodeTree
-from mathutils import Vector as MockVector
+from unittest.mock import MagicMock
+
+from mathutils import Color, Euler, Vector
+
+from tests.helpers import MockNode, MockNodeTree, MockRNAProperty
 
 from node_runner.serialize import (
     serialize_color,
@@ -17,19 +20,16 @@ class TestPrimitiveSerializers:
     """Test basic type serializers."""
 
     def test_serialize_color(self):
-        from mathutils import Color
         c = Color((0.5, 0.2, 0.8))
         result = serialize_color(c)
         assert result == [0.5, 0.2, 0.8]
 
     def test_serialize_vector(self):
-        from mathutils import Vector
         v = Vector((1.0, 2.0, 3.0))
         result = serialize_vector(v)
         assert result == [1.0, 2.0, 3.0]
 
     def test_serialize_euler(self):
-        from mathutils import Euler
         e = Euler((0.1, 0.2, 0.3))
         result = serialize_euler(e)
         assert result == [0.1, 0.2, 0.3]
@@ -60,7 +60,6 @@ class TestSerializeAttr:
         assert serialize_attr(node, None) is None
 
     def test_serialize_vector(self):
-        from mathutils import Vector
         node = MockNode()
         v = Vector((1.0, 2.0))
         result = serialize_attr(node, v)
@@ -115,8 +114,8 @@ class TestSerializeNodeTree:
         tree = MockNodeTree(name="TestTree")
         result = serialize_node_tree(tree)
         assert result["name"] == "TestTree"
-        assert result["nodes"] == {}
-        assert result["links"] == []
+        assert not result["nodes"]
+        assert not result["links"]
 
     def test_tree_with_nodes(self):
         tree = MockNodeTree(name="MyMaterial")
@@ -156,7 +155,6 @@ class TestReadonlyPropSerialization:
 
     def test_readonly_color_ramp_included(self):
         """color_ramp is readonly but should be serialized."""
-        from tests.helpers import MockRNAProperty
         node = MockNode(
             name="ValToRGB",
             bl_idname="ShaderNodeValToRGB",
@@ -171,7 +169,6 @@ class TestReadonlyPropSerialization:
 
     def test_readonly_mapping_included(self):
         """mapping is readonly but should be serialized."""
-        from tests.helpers import MockRNAProperty
         node = MockNode(
             name="RGBCurve",
             bl_idname="ShaderNodeRGBCurve",
@@ -185,7 +182,6 @@ class TestReadonlyPropSerialization:
 
     def test_truly_readonly_props_excluded(self):
         """Properties that are readonly and NOT in the allow list should be skipped."""
-        from tests.helpers import MockRNAProperty
         node = MockNode(
             name="TestNode",
             bl_idname="ShaderNodeMath",
@@ -203,8 +199,6 @@ class TestLinkSerialization:
 
     def test_links_serialized_by_name(self):
         """Links must be matched by node name, not Python id()."""
-        from unittest.mock import MagicMock
-
         tree = MockNodeTree(name="Mat")
         n1 = MockNode(name="Src", bl_idname="ShaderNodeMath")
         n2 = MockNode(name="Dst", bl_idname="ShaderNodeMath")
@@ -239,8 +233,6 @@ class TestLinkSerialization:
 
     def test_links_not_serialized_for_unselected_nodes(self):
         """Links to unselected nodes should be excluded."""
-        from unittest.mock import MagicMock
-
         tree = MockNodeTree(name="Mat")
         n1 = MockNode(name="Src", bl_idname="ShaderNodeMath")
         n2 = MockNode(name="Dst", bl_idname="ShaderNodeMath")

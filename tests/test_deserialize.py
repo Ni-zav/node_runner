@@ -57,7 +57,7 @@ class TestTopologicalSortFrames:
             "Math1": {"type": "ShaderNodeMath"},
             "Math2": {"type": "ShaderNodeMath"},
         }
-        assert _topological_sort_frames(data) == []
+        assert not _topological_sort_frames(data)
 
     def test_single_frame(self):
         data = {

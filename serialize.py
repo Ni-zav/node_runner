@@ -15,9 +15,9 @@ from .constants import EXCLUDE_NODE_PROPS, SERIALIZE_READONLY_PROPS
 
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
+
 #  Primitive / math type serializers
-# ---------------------------------------------------------------------------
+
 
 def serialize_color(color):
     """Serialize a Color to a list of floats."""
@@ -34,9 +34,8 @@ def serialize_euler(euler):
     return list(euler)
 
 
-# ---------------------------------------------------------------------------
 #  Complex type serializers
-# ---------------------------------------------------------------------------
+
 
 def serialize_color_ramp(node):
     """Serialize a ColorRamp attached to *node*."""
@@ -46,8 +45,7 @@ def serialize_color_ramp(node):
         "hue_interpolation": ramp.hue_interpolation,
         "interpolation": ramp.interpolation,
         "elements": [
-            {"position": el.position, "color": list(el.color)}
-            for el in ramp.elements
+            {"position": el.position, "color": list(el.color)} for el in ramp.elements
         ],
     }
 
@@ -144,9 +142,8 @@ def serialize_text(text):
     }
 
 
-# ---------------------------------------------------------------------------
 #  Generic attribute dispatcher
-# ---------------------------------------------------------------------------
+
 
 def serialize_attr(node, attr):
     """Serialize an arbitrary node attribute by dispatching on type.
@@ -179,9 +176,7 @@ def serialize_attr(node, attr):
         bpy.types.bpy_prop_collection: lambda d: [
             serialize_attr(node, el) for el in d.values()
         ],
-        bpy.types.bpy_prop_array: lambda d: [
-            serialize_attr(node, el) for el in d
-        ],
+        bpy.types.bpy_prop_array: lambda d: [serialize_attr(node, el) for el in d],
     }
 
     for data_type, serializer in _dispatch.items():
@@ -194,15 +189,16 @@ def serialize_attr(node, attr):
     except (pickle.PicklingError, TypeError, AttributeError):
         log.warning(
             "Cannot serialize attribute on node '%s': value=%r type=%s",
-            node.name, attr, type(attr).__name__,
+            node.name,
+            attr,
+            type(attr).__name__,
         )
         return None
     return attr
 
 
-# ---------------------------------------------------------------------------
 #  Node serialization
-# ---------------------------------------------------------------------------
+
 
 def serialize_node(node):
     """Serialize all properties of a single node into a dict.
@@ -268,9 +264,8 @@ def serialize_node(node):
     return node_dict
 
 
-# ---------------------------------------------------------------------------
 #  Node tree serialization
-# ---------------------------------------------------------------------------
+
 
 def serialize_node_tree(node_tree, selected_node_names=None):
     """Serialize a complete node tree (nodes + links).
@@ -294,9 +289,7 @@ def serialize_node_tree(node_tree, selected_node_names=None):
     if selected_node_names is None:
         selected_nodes = list(nodes)
     else:
-        selected_nodes = [
-            nodes[name] for name in selected_node_names if name in nodes
-        ]
+        selected_nodes = [nodes[name] for name in selected_node_names if name in nodes]
 
     # Also include parent frames of selected nodes
     extra_frames = set()
@@ -318,17 +311,22 @@ def serialize_node_tree(node_tree, selected_node_names=None):
     for link in node_tree.links:
         # Compare by name — id() is unreliable for bpy_struct wrappers
         # since Blender may create new Python objects on each access.
-        if link.from_node.name in selected_names and link.to_node.name in selected_names:
-            data["links"].append({
-                "from_node": link.from_node.name,
-                "to_node": link.to_node.name,
-                "from_socket": link.from_socket.name,
-                "from_socket_type": link.from_socket.bl_idname,
-                "from_socket_identifier": link.from_socket.identifier,
-                "to_socket": link.to_socket.name,
-                "to_socket_type": link.to_socket.bl_idname,
-                "to_socket_identifier": link.to_socket.identifier,
-            })
+        if (
+            link.from_node.name in selected_names
+            and link.to_node.name in selected_names
+        ):
+            data["links"].append(
+                {
+                    "from_node": link.from_node.name,
+                    "to_node": link.to_node.name,
+                    "from_socket": link.from_socket.name,
+                    "from_socket_type": link.from_socket.bl_idname,
+                    "from_socket_identifier": link.from_socket.identifier,
+                    "to_socket": link.to_socket.name,
+                    "to_socket_type": link.to_socket.bl_idname,
+                    "to_socket_identifier": link.to_socket.identifier,
+                }
+            )
 
     log.debug("Serialized %d links", len(data["links"]))
     return data
