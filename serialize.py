@@ -310,13 +310,15 @@ def serialize_node_tree(node_tree, selected_node_names=None):
         if frame_name in nodes:
             selected_nodes.append(nodes[frame_name])
 
-    selected_set = set(id(n) for n in selected_nodes)
+    selected_names = {n.name for n in selected_nodes}
 
     for node in selected_nodes:
         data["nodes"][node.name] = serialize_node(node)
 
     for link in node_tree.links:
-        if id(link.from_node) in selected_set and id(link.to_node) in selected_set:
+        # Compare by name — id() is unreliable for bpy_struct wrappers
+        # since Blender may create new Python objects on each access.
+        if link.from_node.name in selected_names and link.to_node.name in selected_names:
             data["links"].append({
                 "from_node": link.from_node.name,
                 "to_node": link.to_node.name,
@@ -328,4 +330,5 @@ def serialize_node_tree(node_tree, selected_node_names=None):
                 "to_socket_identifier": link.to_socket.identifier,
             })
 
+    log.debug("Serialized %d links", len(data["links"]))
     return data

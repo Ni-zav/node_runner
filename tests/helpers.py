@@ -103,7 +103,7 @@ class MockNodeCollection:
 
 
 class MockLinkCollection(list):
-    """Mock for NodeTree.links — matches Blender 4.x API.
+    """Mock for NodeTree.links — matches Blender 5.x API.
 
     ``links.new(input_socket, output_socket)``
     """
@@ -111,5 +111,8 @@ class MockLinkCollection(list):
         link = MagicMock()
         link.from_socket = output_socket  # source / output
         link.to_socket = input_socket     # destination / input
+        # Store node references for serialization tests
+        link.from_node = getattr(output_socket, '_node', MagicMock())
+        link.to_node = getattr(input_socket, '_node', MagicMock())
         self.append(link)
         return link

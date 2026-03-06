@@ -196,3 +196,62 @@ class TestReadonlyPropSerialization:
         node.some_internal = "should_not_appear"
         result = serialize_node(node)
         assert "some_internal" not in result
+
+
+class TestLinkSerialization:
+    """Test that links are serialized correctly using name-based matching."""
+
+    def test_links_serialized_by_name(self):
+        """Links must be matched by node name, not Python id()."""
+        from unittest.mock import MagicMock
+
+        tree = MockNodeTree(name="Mat")
+        n1 = MockNode(name="Src", bl_idname="ShaderNodeMath")
+        n2 = MockNode(name="Dst", bl_idname="ShaderNodeMath")
+        tree.nodes.add(n1)
+        tree.nodes.add(n2)
+
+        # Create a mock link where from_node/to_node are DIFFERENT
+        # Python objects from what's in nodes (simulating Blender 5.x
+        # behaviour where each property access creates a new wrapper).
+        mock_link = MagicMock()
+        mock_from_node = MagicMock()
+        mock_from_node.name = "Src"
+        mock_to_node = MagicMock()
+        mock_to_node.name = "Dst"
+
+        mock_link.from_node = mock_from_node
+        mock_link.to_node = mock_to_node
+        mock_link.from_socket.name = "Value"
+        mock_link.from_socket.bl_idname = "NodeSocketFloat"
+        mock_link.from_socket.identifier = "Value"
+        mock_link.to_socket.name = "Value"
+        mock_link.to_socket.bl_idname = "NodeSocketFloat"
+        mock_link.to_socket.identifier = "Value"
+        tree.links.append(mock_link)
+
+        result = serialize_node_tree(tree, selected_node_names=["Src", "Dst"])
+        # The link must be included even though the from_node/to_node
+        # objects differ from what's stored in tree.nodes
+        assert len(result["links"]) == 1
+        assert result["links"][0]["from_node"] == "Src"
+        assert result["links"][0]["to_node"] == "Dst"
+
+    def test_links_not_serialized_for_unselected_nodes(self):
+        """Links to unselected nodes should be excluded."""
+        from unittest.mock import MagicMock
+
+        tree = MockNodeTree(name="Mat")
+        n1 = MockNode(name="Src", bl_idname="ShaderNodeMath")
+        n2 = MockNode(name="Dst", bl_idname="ShaderNodeMath")
+        tree.nodes.add(n1)
+        tree.nodes.add(n2)
+
+        mock_link = MagicMock()
+        mock_link.from_node.name = "Src"
+        mock_link.to_node.name = "Dst"
+        tree.links.append(mock_link)
+
+        # Only select Src, not Dst
+        result = serialize_node_tree(tree, selected_node_names=["Src"])
+        assert len(result["links"]) == 0

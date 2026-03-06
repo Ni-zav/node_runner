@@ -576,11 +576,32 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
                     new_node.location = loc
 
     # ---- Phase 3: Create links ----
+    links_created = 0
     for link_data in links_data:
         out_sock, in_sock = deserialize_link(node_map, link_data, socket_id_map)
         if in_sock and out_sock:
-            # Blender 4.x API: links.new(input_socket, output_socket)
-            node_tree.links.new(in_sock, out_sock)
+            try:
+                # Blender API: links.new(input_socket, output_socket)
+                node_tree.links.new(in_sock, out_sock)
+                links_created += 1
+            except Exception as exc:
+                log.warning(
+                    "Failed to create link %s.%s -> %s.%s: %s",
+                    link_data.get("from_node"), link_data.get("from_socket"),
+                    link_data.get("to_node"), link_data.get("to_socket"),
+                    exc,
+                )
+        else:
+            log.warning(
+                "Could not resolve link endpoints: %s.%s -> %s.%s"
+                " (out_sock=%s, in_sock=%s)",
+                link_data.get("from_node"), link_data.get("from_socket"),
+                link_data.get("to_node"), link_data.get("to_socket"),
+                out_sock, in_sock,
+            )
+    log.debug(
+        "Created %d/%d links", links_created, len(links_data)
+    )
 
 
 def _set_location_from_absolute(node, abs_loc):

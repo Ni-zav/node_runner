@@ -19,7 +19,7 @@ bl_info = {
     "name": "Node Runner",
     "author": "Noah Thiering, Julius Ewert",
     "version": (1, 0, 0),
-    "blender": (4, 2, 0),
+    "blender": (5, 0, 0),
     "location": "Node Editor > Context Menu",
     "description": "Import and export shader & geometry nodes as a string",
     "doc_url": "docs/",
