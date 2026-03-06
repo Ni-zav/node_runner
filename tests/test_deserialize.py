@@ -1,9 +1,12 @@
 """Tests for the deserialization module."""
 
-from tests.helpers import MockNodeTree
+from unittest.mock import MagicMock
+
+from tests.helpers import MockNodeTree, MockSocket
 
 from node_runner.deserialize import (
     get_node_socket_base_type,
+    get_socket_by_identifier,
     _topological_sort_frames,
     deserialize_node_tree,
 )
@@ -169,7 +172,7 @@ class TestDeserializeNodeTree:
         assert len(tree.nodes) >= 2
 
     def test_link_args_order(self):
-        """links.new() must be called with (output_socket, input_socket)."""
+        """links.new() must be called with (input_socket, output_socket)."""
         tree = MockNodeTree()
         data = {
             "nodes": {
@@ -202,13 +205,84 @@ class TestDeserializeNodeTree:
         }
         socket_map = {}
         deserialize_node_tree(tree, data, socket_map)
-        # The link should have been created.
-        # MockLinkCollection.new(output_socket, input_socket) stores
-        # from_socket=output_socket first.  If the call order was wrong
-        # the from/to would be swapped.
-        if tree.links:
-            link = tree.links[0]
-            # from_socket should be the OUTPUT (first arg to links.new)
-            # to_socket should be the INPUT (second arg to links.new)
-            assert link.from_socket is not None
-            assert link.to_socket is not None
+        # A link must have been created
+        assert len(tree.links) == 1
+        link = tree.links[0]
+        # from_socket = output (source), to_socket = input (destination)
+        # The mock stores them correctly based on Blender 4.x
+        # links.new(input, output) API
+        assert link.from_socket is not None
+        assert link.to_socket is not None
+
+    def test_link_fallback_by_name(self):
+        """Sockets should be found by name when identifier doesn't match."""
+        tree = MockNodeTree()
+        data = {
+            "nodes": {
+                "Src": {
+                    "type": "ShaderNodeMath",
+                    "label": "",
+                    "name": "Src",
+                    "location": [0, 0],
+                    "location_absolute": [0, 0],
+                },
+                "Dst": {
+                    "type": "ShaderNodeMath",
+                    "label": "",
+                    "name": "Dst",
+                    "location": [200, 0],
+                    "location_absolute": [200, 0],
+                },
+            },
+            "links": [{
+                "from_node": "Src",
+                "to_node": "Dst",
+                "from_socket": "Value",
+                "from_socket_type": "NodeSocketFloat",
+                "from_socket_identifier": "NONEXISTENT_ID",
+                "to_socket": "Value",
+                "to_socket_type": "NodeSocketFloat",
+                "to_socket_identifier": "NONEXISTENT_ID",
+            }],
+            "name": "Test",
+        }
+        socket_map = {}
+        deserialize_node_tree(tree, data, socket_map)
+        # Link should still be created via name fallback
+        assert len(tree.links) == 1
+
+
+class TestGetSocketByIdentifier:
+    """Test socket resolution with identifier and name fallback."""
+
+    def test_find_by_identifier(self):
+        node = MagicMock()
+        node.bl_idname = "ShaderNodeMath"
+        node.name = "TestNode"
+        node.inputs = [MockSocket("Color", "color_input")]
+        sock = get_socket_by_identifier(
+            node, "color_input", {}, "INPUT"
+        )
+        assert sock is not None
+        assert sock.identifier == "color_input"
+
+    def test_fallback_by_name(self):
+        node = MagicMock()
+        node.bl_idname = "ShaderNodeMath"
+        node.name = "TestNode"
+        node.inputs = [MockSocket("Color", "new_id")]
+        sock = get_socket_by_identifier(
+            node, "old_id", {}, "INPUT", name="Color"
+        )
+        assert sock is not None
+        assert sock.name == "Color"
+
+    def test_returns_none_when_not_found(self):
+        node = MagicMock()
+        node.bl_idname = "ShaderNodeMath"
+        node.name = "TestNode"
+        node.inputs = [MockSocket("Fac", "fac")]
+        sock = get_socket_by_identifier(
+            node, "missing_id", {}, "INPUT", name="Missing"
+        )
+        assert sock is None

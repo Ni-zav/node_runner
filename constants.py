@@ -55,6 +55,19 @@ EXCLUDE_NODE_PROPS = frozenset({
     "warning_propagation",
 })
 
+# Readonly properties that should still be serialized.
+# These are readonly pointer properties whose sub-data we need to capture.
+SERIALIZE_READONLY_PROPS = frozenset({
+    "name",
+    "inputs",
+    "outputs",
+    "color_ramp",
+    "mapping",
+    "texture_mapping",
+    "color_mapping",
+    "image",
+})
+
 # Properties that are read-only and should be skipped during deserialization
 READONLY_DESERIALIZE_PROPS = frozenset({
     "type",

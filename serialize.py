@@ -11,7 +11,7 @@ import pickle
 import bpy
 import mathutils
 
-from .constants import EXCLUDE_NODE_PROPS
+from .constants import EXCLUDE_NODE_PROPS, SERIALIZE_READONLY_PROPS
 
 log = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ def serialize_node(node):
         prop_name = prop.identifier
         if prop_name in EXCLUDE_NODE_PROPS:
             continue
-        if prop.is_readonly and prop_name not in ("name", "inputs", "outputs"):
+        if prop.is_readonly and prop_name not in SERIALIZE_READONLY_PROPS:
             continue
 
         try:

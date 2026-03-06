@@ -149,3 +149,50 @@ class TestSerializeNodeTree:
         tree = MockNodeTree(name="Mat", bl_idname="ShaderNodeTree")
         result = serialize_node_tree(tree)
         assert result["tree_type"] == "ShaderNodeTree"
+
+
+class TestReadonlyPropSerialization:
+    """Test that readonly pointer properties are still serialized."""
+
+    def test_readonly_color_ramp_included(self):
+        """color_ramp is readonly but should be serialized."""
+        from tests.helpers import MockRNAProperty
+        node = MockNode(
+            name="ValToRGB",
+            bl_idname="ShaderNodeValToRGB",
+        )
+        # Add color_ramp as a readonly property
+        node.bl_rna.properties.append(
+            MockRNAProperty("color_ramp", is_readonly=True)
+        )
+        node.color_ramp = "mock_ramp_value"
+        result = serialize_node(node)
+        assert "color_ramp" in result
+
+    def test_readonly_mapping_included(self):
+        """mapping is readonly but should be serialized."""
+        from tests.helpers import MockRNAProperty
+        node = MockNode(
+            name="RGBCurve",
+            bl_idname="ShaderNodeRGBCurve",
+        )
+        node.bl_rna.properties.append(
+            MockRNAProperty("mapping", is_readonly=True)
+        )
+        node.mapping = "mock_mapping_value"
+        result = serialize_node(node)
+        assert "mapping" in result
+
+    def test_truly_readonly_props_excluded(self):
+        """Properties that are readonly and NOT in the allow list should be skipped."""
+        from tests.helpers import MockRNAProperty
+        node = MockNode(
+            name="TestNode",
+            bl_idname="ShaderNodeMath",
+        )
+        node.bl_rna.properties.append(
+            MockRNAProperty("some_internal", is_readonly=True)
+        )
+        node.some_internal = "should_not_appear"
+        result = serialize_node(node)
+        assert "some_internal" not in result

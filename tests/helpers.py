@@ -20,6 +20,15 @@ class MockRNAProperty:
         self.is_readonly = is_readonly
 
 
+class MockSocket:
+    """Mock for a NodeSocket with identifier, name, and default_value."""
+    def __init__(self, name, identifier=None, bl_idname="NodeSocketFloat"):
+        self.name = name
+        self.identifier = identifier or name
+        self.bl_idname = bl_idname
+        self.default_value = 0.0
+
+
 class MockNode:
     """A configurable mock node for testing serialization."""
     def __init__(self, name="TestNode", bl_idname="ShaderNodeMath", label="",
@@ -83,8 +92,9 @@ class MockNodeCollection:
         node.parent = None
         node.location = MockVector([0, 0])
         node.location_absolute = MockVector([0, 0])
-        node.inputs = []
-        node.outputs = []
+        # Add default sockets so link tests work
+        node.inputs = [MockSocket("Value", "Value")]
+        node.outputs = [MockSocket("Value", "Value")]
         self._nodes[node.name] = node
         return node
 
@@ -93,10 +103,13 @@ class MockNodeCollection:
 
 
 class MockLinkCollection(list):
-    """Mock for NodeTree.links."""
-    def new(self, output_socket, input_socket):
+    """Mock for NodeTree.links — matches Blender 4.x API.
+
+    ``links.new(input_socket, output_socket)``
+    """
+    def new(self, input_socket, output_socket, verify_limits=True):
         link = MagicMock()
-        link.from_socket = output_socket
-        link.to_socket = input_socket
+        link.from_socket = output_socket  # source / output
+        link.to_socket = input_socket     # destination / input
         self.append(link)
         return link

@@ -29,17 +29,21 @@ def get_node_socket_base_type(socket_type: str) -> str:
     return "NodeSocketFloat"
 
 
-def get_socket_by_identifier(node, identifier, socket_id_map, direction="INPUT"):
+def get_socket_by_identifier(
+    node, identifier, socket_id_map, direction="INPUT", name=None
+):
     """Find a socket on *node* by its original identifier.
 
     Handles remapping for group nodes whose identifiers change when
-    sockets are created during deserialization.
+    sockets are created during deserialization.  Falls back to matching
+    by *name* when the identifier lookup fails.
 
     Args:
         node: The Blender node.
         identifier: Original socket identifier from serialized data.
         socket_id_map: dict mapping old identifiers -> new identifiers.
         direction: ``'INPUT'`` or ``'OUTPUT'``.
+        name: Optional socket name for fallback matching.
 
     Returns:
         The matching ``NodeSocket`` or ``None``.
@@ -54,9 +58,21 @@ def get_socket_by_identifier(node, identifier, socket_id_map, direction="INPUT")
         if child_key in socket_id_map:
             resolved_id = socket_id_map[child_key].get(identifier, identifier)
 
+    # Primary: match by identifier
     for sock in sockets:
         if sock.identifier == resolved_id:
             return sock
+
+    # Fallback: match by name
+    if name:
+        for sock in sockets:
+            if sock.name == name:
+                return sock
+
+    log.warning(
+        "Socket '%s' (name='%s') not found on '%s' (%s)",
+        identifier, name, node.name, direction,
+    )
     return None
 
 
@@ -93,13 +109,20 @@ def deserialize_color_ramp(node, data):
     ramp.interpolation = data.get("interpolation", ramp.interpolation)
 
     elements_data = data.get("elements", [])
+    if not elements_data:
+        return
+
+    # Ensure correct number of elements
+    while len(ramp.elements) < len(elements_data):
+        ramp.elements.new(0.5)
+    while len(ramp.elements) > len(elements_data) and len(ramp.elements) > 1:
+        ramp.elements.remove(ramp.elements[-1])
+
+    # Apply positions and colors (sorted order to avoid re-indexing)
     for i, el_data in enumerate(elements_data):
-        if i >= len(ramp.elements):
-            el = ramp.elements.new(el_data["position"])
-        else:
-            el = ramp.elements[i]
-        el.position = el_data["position"]
-        el.color = el_data["color"]
+        if i < len(ramp.elements):
+            ramp.elements[i].position = el_data["position"]
+            ramp.elements[i].color = el_data["color"]
 
 
 def deserialize_color_mapping(node, data):
@@ -336,8 +359,18 @@ def deserialize_node(node_data, node_tree, socket_id_map):
         "script": lambda n, v: setattr(n, "script", deserialize_text(v)),
     }
 
+    # Process inputs/outputs LAST so that mode-changing properties
+    # (e.g. operation, blend_type, data_type) are applied first,
+    # giving sockets the correct layout before setting defaults.
+    _deferred_io = {}
+
     for prop_name, prop_value in node_data.items():
         if prop_name in READONLY_DESERIALIZE_PROPS:
+            continue
+
+        # Defer socket default value assignment
+        if prop_name in ("inputs", "outputs"):
+            _deferred_io[prop_name] = prop_value
             continue
 
         if prop_name in _prop_handlers:
@@ -355,6 +388,10 @@ def deserialize_node(node_data, node_tree, socket_id_map):
                     "Cannot set '%s' on '%s': %s",
                     prop_name, new_node.name, exc,
                 )
+
+    # Now apply deferred socket defaults
+    for prop_name, prop_value in _deferred_io.items():
+        _prop_handlers[prop_name](new_node, prop_value)
 
     return new_node
 
@@ -384,15 +421,17 @@ def deserialize_link(node_map, link_data, socket_id_map):
 
     out_sock = get_socket_by_identifier(
         from_node,
-        link_data["from_socket_identifier"],
+        link_data.get("from_socket_identifier", ""),
         socket_id_map,
         "OUTPUT",
+        name=link_data.get("from_socket"),
     )
     in_sock = get_socket_by_identifier(
         to_node,
-        link_data["to_socket_identifier"],
+        link_data.get("to_socket_identifier", ""),
         socket_id_map,
         "INPUT",
+        name=link_data.get("to_socket"),
     )
     return out_sock, in_sock
 
@@ -540,7 +579,8 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
     for link_data in links_data:
         out_sock, in_sock = deserialize_link(node_map, link_data, socket_id_map)
         if in_sock and out_sock:
-            node_tree.links.new(out_sock, in_sock)
+            # Blender 4.x API: links.new(input_socket, output_socket)
+            node_tree.links.new(in_sock, out_sock)
 
 
 def _set_location_from_absolute(node, abs_loc):
