@@ -10,6 +10,11 @@ This **Blender Python Addon** allows you to easily **import and export shader no
 
 With this addon, sharing and reusing shader node setups becomes as simple as copying and pasting a line of text!
 
+# Installation
+
+It is currently pending review from the Blender Team. After that you can install it via the Add-ons manager in Blender. 
+For now you can download the latest release and import it from Blender. Go to `Edit > Preferences > Add-ons > Arrow down (top right corner) > Install from Disk`. Then choose the zip you downloaded.  
+
 ## Features
 
 - **🚀 Export Shader Nodes**: Converts your current shader node setup into a compact string that can be copied and shared.
@@ -18,7 +23,7 @@ With this addon, sharing and reusing shader node setups becomes as simple as cop
 
 ## Development
 
-1. Clones this repository into your `addons_core` folder (should be at your local blender installation, example: `blender-4.2.2-windows-x64\4.2\scripts\addons_core`).
+1. Clones this repository into your `blender/BLENDER_VERSION/extensions/user_default/` folder (should be at your local blender installation).
 2. Open Blender and go into "`Edit > Preferences > Add-Ons`" and search for `Node Runner`.
 3. Check the checkbox.
 
