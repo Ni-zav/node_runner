@@ -10,7 +10,7 @@ type = "add-on"
 
 tags = ["Node", "Material", "Geometry Nodes"]
 
-blender_version_min = "5.0.0"
+blender_version_min = "4.5.0"
 
 # https://docs.blender.org/manual/en/dev/advanced/extensions/licenses.html
 license = ["SPDX:GPL-3.0-or-later"]
