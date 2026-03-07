@@ -12,6 +12,8 @@ With this addon, sharing and reusing shader node setups becomes as simple as cop
 
 # Installation
 
+https://extensions.blender.org/approval-queue/node-runner/
+
 It is currently pending review from the Blender Team. After that you can install it via the Add-ons manager in Blender. 
 For now you can download the latest release and import it from Blender. Go to `Edit > Preferences > Add-ons > Arrow down (top right corner) > Install from Disk`. Then choose the zip you downloaded.  
 
