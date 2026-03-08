@@ -136,20 +136,17 @@ def _xml_to_dict(elem: ET.Element):
     """Recursively convert an XML element tree back to Python objects."""
     dtype = elem.get("type", "str")
 
-    if dtype == "dict":
-        return {child.tag: _xml_to_dict(child) for child in elem}
-    elif dtype == "list":
-        return [_xml_to_dict(child) for child in elem]
-    elif dtype == "bool":
-        return elem.text == "true"
-    elif dtype == "int":
-        return int(elem.text)
-    elif dtype == "float":
-        return float(elem.text)
-    elif dtype == "none":
-        return None
-    else:
-        return elem.text or ""
+    converters = {
+        "dict": lambda e: {child.tag: _xml_to_dict(child) for child in e},
+        "list": lambda e: [_xml_to_dict(child) for child in e],
+        "bool": lambda e: e.text == "true",
+        "int": lambda e: int(e.text),
+        "float": lambda e: float(e.text),
+        "none": lambda _: None,
+        "str": lambda e: e.text or "",
+    }
+
+    return converters.get(dtype, converters["str"])(elem)
 
 
 def encode_xml(data: dict) -> str:
@@ -203,9 +200,9 @@ def encode_as(data: dict, fmt: str = FORMAT_HASH) -> str:
     """
     if fmt == FORMAT_HASH:
         return encode(data)
-    elif fmt == FORMAT_JSON:
+    if fmt == FORMAT_JSON:
         return encode_json(data)
-    elif fmt == FORMAT_XML:
+    if fmt == FORMAT_XML:
         return encode_xml(data)
     raise ValueError(f"Unknown format: {fmt!r}")
 
@@ -225,9 +222,9 @@ def decode_as(encoded: str, fmt: str = FORMAT_HASH) -> dict:
     """
     if fmt == FORMAT_HASH:
         return decode(encoded)
-    elif fmt == FORMAT_JSON:
+    if fmt == FORMAT_JSON:
         return decode_json(encoded)
-    elif fmt == FORMAT_XML:
+    if fmt == FORMAT_XML:
         return decode_xml(encoded)
     raise ValueError(f"Unknown format: {fmt!r}")
 
