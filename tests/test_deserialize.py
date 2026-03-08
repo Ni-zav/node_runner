@@ -1,6 +1,6 @@
 """Tests for the deserialization module."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from tests.helpers import MockNodeTree, MockSocket
 
