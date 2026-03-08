@@ -162,4 +162,5 @@ cython_debug/
 #.idea/
 *.zip
 *.blend
+*.blend1
 extension/

@@ -28,6 +28,12 @@ _FORMAT_ITEMS = [
 ]
 
 
+def _blender_version_string():
+    """Return the current Blender version as ``'X.Y.Z'``."""
+    v = bpy.app.version
+    return f"{v[0]}.{v[1]}.{v[2]}"
+
+
 #  Addon preferences
 
 
@@ -63,15 +69,33 @@ def _get_prefs(context):
 #  Shared helpers
 
 
-def _build_export_string(data, export_name, fmt):
+def _strip_image_paths(data):
+    """Remove ``filepath`` keys from every image dict inside *data*."""
+    nodes = data.get("nodes", {})
+    for node_data in nodes.values():
+        if isinstance(node_data, dict):
+            img = node_data.get("image")
+            if isinstance(img, dict):
+                img.pop("filepath", None)
+
+
+def _build_export_string(data, export_name, fmt, include_image_paths=True):
     """Encode *data* in the requested format and return the final string.
 
     For hash format the traditional ``Name__NR<base64>`` form is used.
     For JSON / XML the export name is embedded in the data so that the
     output is a valid, self-contained document.
+
+    The Blender version is always embedded in the data so the importer
+    can warn when versions differ.
     """
+    data = dict(data)
+    data["blender_version"] = _blender_version_string()
+
+    if not include_image_paths:
+        _strip_image_paths(data)
+
     if fmt in (FORMAT_JSON, FORMAT_XML):
-        data = dict(data)
         data["export_name"] = export_name
         return encode_as(data, fmt)
 
@@ -99,8 +123,8 @@ def _strip_header_and_detect(raw):
 def _do_import(operator, context, raw, mouse_x=None, mouse_y=None):
     """Shared import logic used by both the Import and Paste operators.
 
-    If *mouse_x* / *mouse_y* are given the imported nodes are offset to
-    that region-space position.
+    Decodes *raw*, checks the embedded Blender version, and either
+    proceeds directly or pops a confirmation dialog when versions differ.
     """
     edit_tree = context.space_data.edit_tree
     if edit_tree is None:
@@ -115,8 +139,37 @@ def _do_import(operator, context, raw, mouse_x=None, mouse_y=None):
         operator.report({"ERROR"}, str(exc))
         return {"CANCELLED"}
 
+    # Check Blender version
+    export_version = data.get("blender_version", "")
+    current_version = _blender_version_string()
+
+    if export_version and export_version != current_version:
+        # Stash decoded data for the confirm operator
+        bpy.types.WindowManager.nr_pending_data = data
+        bpy.types.WindowManager.nr_pending_mouse = (mouse_x, mouse_y)
+        return bpy.ops.node_runner.confirm_import(
+            "INVOKE_DEFAULT",
+            export_version=export_version,
+            current_version=current_version,
+        )
+
+    return _apply_import(operator, context, data, mouse_x, mouse_y)
+
+
+def _apply_import(operator, context, data, mouse_x=None, mouse_y=None):
+    """Deserialize decoded *data* into the active node tree.
+
+    This is the second half of import, called after any version-mismatch
+    confirmation has been accepted (or skipped).
+    """
+    edit_tree = context.space_data.edit_tree
+    if edit_tree is None:
+        operator.report({"WARNING"}, "No active node tree to import into")
+        return {"CANCELLED"}
+
     # Pop metadata that isn't part of the node-tree payload
     data.pop("export_name", None)
+    data.pop("blender_version", None)
 
     # Deselect all existing nodes
     for node in edit_tree.nodes:
@@ -192,6 +245,15 @@ class NODE_RUNNER_OT_export(bpy.types.Operator):
         description="Output format for the exported data",
     )  # type: ignore
 
+    include_image_paths: bpy.props.BoolProperty(
+        name="Include Image Paths",
+        default=True,
+        description=(
+            "Store absolute file paths for image textures so they "
+            "can be loaded automatically on import"
+        ),
+    )  # type: ignore
+
     def execute(self, context):
         edit_tree = context.space_data.edit_tree
         if edit_tree is None:
@@ -211,7 +273,10 @@ class NODE_RUNNER_OT_export(bpy.types.Operator):
 
         data = serialize_node_tree(edit_tree, selected_node_names=names)
         export_str = _build_export_string(
-            data, self.export_name or "MyNodes", self.export_format
+            data,
+            self.export_name or "MyNodes",
+            self.export_format,
+            include_image_paths=self.include_image_paths,
         )
 
         context.window_manager.clipboard = export_str
@@ -232,6 +297,7 @@ class NODE_RUNNER_OT_export(bpy.types.Operator):
         layout = self.layout
         layout.prop(self, "export_name", text="Name", icon="SORTALPHA")
         layout.prop(self, "export_format", text="Format")
+        layout.prop(self, "include_image_paths", icon="IMAGE_DATA")
 
 
 #  Import operators
@@ -334,6 +400,47 @@ class NODE_RUNNER_OT_paste(bpy.types.Operator):
         return _do_import(self, context, raw, mouse_x, mouse_y)
 
 
+#  Version-mismatch confirmation
+
+
+class NODE_RUNNER_OT_confirm_import(bpy.types.Operator):
+    """Confirm import when the Blender version differs"""
+
+    bl_idname = "node_runner.confirm_import"
+    bl_label = "Version Mismatch"
+    bl_options = {"INTERNAL"}
+
+    export_version: bpy.props.StringProperty()  # type: ignore
+    current_version: bpy.props.StringProperty()  # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Blender version mismatch!", icon="ERROR")
+        layout.label(text=f"Exported with: {self.export_version}")
+        layout.label(text=f"Current:       {self.current_version}")
+        layout.separator()
+        layout.label(text="Node data may not import correctly.")
+        layout.label(text="Continue anyway?")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def execute(self, context):
+        # Retrieve stashed data from _do_import
+        data = getattr(bpy.types.WindowManager, "nr_pending_data", None)
+        mouse = getattr(bpy.types.WindowManager, "nr_pending_mouse", (None, None))
+
+        if data is None:
+            self.report({"ERROR"}, "No pending import data")
+            return {"CANCELLED"}
+
+        # Clean up
+        del bpy.types.WindowManager.nr_pending_data
+        del bpy.types.WindowManager.nr_pending_mouse
+
+        return _apply_import(self, context, data, mouse[0], mouse[1])
+
+
 #  Context menu (submenu)
 
 
@@ -375,6 +482,7 @@ def menu_draw(self, context):
 _classes = (
     NODE_RUNNER_preferences,
     NODE_RUNNER_OT_export,
+    NODE_RUNNER_OT_confirm_import,
     NODE_RUNNER_OT_import,
     NODE_RUNNER_OT_paste,
     NODE_RUNNER_MT_menu,

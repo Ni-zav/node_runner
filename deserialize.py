@@ -194,15 +194,37 @@ def deserialize_curve_mapping(node, data):
 
 
 def deserialize_image(node, data):
-    """Set image on *node* from serialized data (by name)."""
+    """Set image on *node* from serialized data.
+
+    Looks up by name first.  If the image is not already loaded and a
+    ``filepath`` was stored, attempts to load it from disk.
+    """
     img_name = data.get("name")
     if not img_name:
         return
+
     image = bpy.data.images.get(img_name)
     if image:
         node.image = image
-    else:
-        log.info("Image '%s' not found in blend file.", img_name)
+        return
+
+    filepath = data.get("filepath", "")
+    if filepath:
+        try:
+            image = bpy.data.images.load(filepath)
+            node.image = image
+            log.info("Loaded image '%s' from '%s'.", img_name, filepath)
+            return
+        except (RuntimeError, OSError):
+            log.warning(
+                "Image '%s' not found in blend file and could not be "
+                "loaded from '%s'.",
+                img_name,
+                filepath,
+            )
+            return
+
+    log.info("Image '%s' not found in blend file.", img_name)
 
 
 def deserialize_text_line(text_line, data):

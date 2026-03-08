@@ -10,6 +10,7 @@ from node_runner.serialize import (
     serialize_color,
     serialize_vector,
     serialize_euler,
+    serialize_image,
     serialize_attr,
     serialize_node,
     serialize_node_tree,
@@ -160,9 +161,7 @@ class TestReadonlyPropSerialization:
             bl_idname="ShaderNodeValToRGB",
         )
         # Add color_ramp as a readonly property
-        node.bl_rna.properties.append(
-            MockRNAProperty("color_ramp", is_readonly=True)
-        )
+        node.bl_rna.properties.append(MockRNAProperty("color_ramp", is_readonly=True))
         node.color_ramp = "mock_ramp_value"
         result = serialize_node(node)
         assert "color_ramp" in result
@@ -173,9 +172,7 @@ class TestReadonlyPropSerialization:
             name="RGBCurve",
             bl_idname="ShaderNodeRGBCurve",
         )
-        node.bl_rna.properties.append(
-            MockRNAProperty("mapping", is_readonly=True)
-        )
+        node.bl_rna.properties.append(MockRNAProperty("mapping", is_readonly=True))
         node.mapping = "mock_mapping_value"
         result = serialize_node(node)
         assert "mapping" in result
@@ -247,3 +244,30 @@ class TestLinkSerialization:
         # Only select Src, not Dst
         result = serialize_node_tree(tree, selected_node_names=["Src"])
         assert len(result["links"]) == 0
+
+
+class TestSerializeImage:
+    """Test image serialization with filepath support."""
+
+    def test_name_only_when_no_filepath(self):
+        img = MagicMock()
+        img.name = "texture.png"
+        img.filepath = ""
+        result = serialize_image(img)
+        assert result == {"name": "texture.png"}
+        assert "filepath" not in result
+
+    def test_includes_filepath_when_present(self):
+        img = MagicMock()
+        img.name = "texture.png"
+        img.filepath = "/home/user/textures/texture.png"
+        result = serialize_image(img)
+        assert result["name"] == "texture.png"
+        assert result["filepath"] == "/home/user/textures/texture.png"
+
+    def test_no_filepath_attr(self):
+        """Images without a filepath attribute at all should work."""
+        img = MagicMock(spec=["name"])
+        img.name = "generated"
+        result = serialize_image(img)
+        assert result == {"name": "generated"}

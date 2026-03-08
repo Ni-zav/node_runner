@@ -118,8 +118,12 @@ def serialize_curve_map_point(node, point):
 
 
 def serialize_image(image):
-    """Serialize an Image reference (name only)."""
-    return {"name": image.name}
+    """Serialize an Image reference (name + absolute filepath when available)."""
+    result = {"name": image.name}
+    raw_path = getattr(image, "filepath", "")
+    if raw_path:
+        result["filepath"] = bpy.path.abspath(raw_path)
+    return result
 
 
 def serialize_text_line(text_line):

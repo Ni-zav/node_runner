@@ -1,12 +1,13 @@
 """Tests for the deserialization module."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.helpers import MockNodeTree, MockSocket
 
 from node_runner.deserialize import (
     get_node_socket_base_type,
     get_socket_by_identifier,
+    deserialize_image,
     _topological_sort_frames,
     deserialize_node_tree,
 )
@@ -154,16 +155,18 @@ class TestDeserializeNodeTree:
                     "location_absolute": [200, 0],
                 },
             },
-            "links": [{
-                "from_node": "A",
-                "to_node": "B",
-                "from_socket": "Value",
-                "from_socket_type": "NodeSocketFloat",
-                "from_socket_identifier": "Value",
-                "to_socket": "Value",
-                "to_socket_type": "NodeSocketFloat",
-                "to_socket_identifier": "Value",
-            }],
+            "links": [
+                {
+                    "from_node": "A",
+                    "to_node": "B",
+                    "from_socket": "Value",
+                    "from_socket_type": "NodeSocketFloat",
+                    "from_socket_identifier": "Value",
+                    "to_socket": "Value",
+                    "to_socket_type": "NodeSocketFloat",
+                    "to_socket_identifier": "Value",
+                }
+            ],
             "name": "Test",
         }
         socket_map = {}
@@ -191,16 +194,18 @@ class TestDeserializeNodeTree:
                     "location_absolute": [200, 0],
                 },
             },
-            "links": [{
-                "from_node": "Src",
-                "to_node": "Dst",
-                "from_socket": "Value",
-                "from_socket_type": "NodeSocketFloat",
-                "from_socket_identifier": "Value",
-                "to_socket": "Value",
-                "to_socket_type": "NodeSocketFloat",
-                "to_socket_identifier": "Value",
-            }],
+            "links": [
+                {
+                    "from_node": "Src",
+                    "to_node": "Dst",
+                    "from_socket": "Value",
+                    "from_socket_type": "NodeSocketFloat",
+                    "from_socket_identifier": "Value",
+                    "to_socket": "Value",
+                    "to_socket_type": "NodeSocketFloat",
+                    "to_socket_identifier": "Value",
+                }
+            ],
             "name": "Test",
         }
         socket_map = {}
@@ -234,16 +239,18 @@ class TestDeserializeNodeTree:
                     "location_absolute": [200, 0],
                 },
             },
-            "links": [{
-                "from_node": "Src",
-                "to_node": "Dst",
-                "from_socket": "Value",
-                "from_socket_type": "NodeSocketFloat",
-                "from_socket_identifier": "NONEXISTENT_ID",
-                "to_socket": "Value",
-                "to_socket_type": "NodeSocketFloat",
-                "to_socket_identifier": "NONEXISTENT_ID",
-            }],
+            "links": [
+                {
+                    "from_node": "Src",
+                    "to_node": "Dst",
+                    "from_socket": "Value",
+                    "from_socket_type": "NodeSocketFloat",
+                    "from_socket_identifier": "NONEXISTENT_ID",
+                    "to_socket": "Value",
+                    "to_socket_type": "NodeSocketFloat",
+                    "to_socket_identifier": "NONEXISTENT_ID",
+                }
+            ],
             "name": "Test",
         }
         socket_map = {}
@@ -260,9 +267,7 @@ class TestGetSocketByIdentifier:
         node.bl_idname = "ShaderNodeMath"
         node.name = "TestNode"
         node.inputs = [MockSocket("Color", "color_input")]
-        sock = get_socket_by_identifier(
-            node, "color_input", {}, "INPUT"
-        )
+        sock = get_socket_by_identifier(node, "color_input", {}, "INPUT")
         assert sock is not None
         assert sock.identifier == "color_input"
 
@@ -271,9 +276,7 @@ class TestGetSocketByIdentifier:
         node.bl_idname = "ShaderNodeMath"
         node.name = "TestNode"
         node.inputs = [MockSocket("Color", "new_id")]
-        sock = get_socket_by_identifier(
-            node, "old_id", {}, "INPUT", name="Color"
-        )
+        sock = get_socket_by_identifier(node, "old_id", {}, "INPUT", name="Color")
         assert sock is not None
         assert sock.name == "Color"
 
@@ -282,7 +285,63 @@ class TestGetSocketByIdentifier:
         node.bl_idname = "ShaderNodeMath"
         node.name = "TestNode"
         node.inputs = [MockSocket("Fac", "fac")]
-        sock = get_socket_by_identifier(
-            node, "missing_id", {}, "INPUT", name="Missing"
-        )
+        sock = get_socket_by_identifier(node, "missing_id", {}, "INPUT", name="Missing")
         assert sock is None
+
+
+class TestDeserializeImage:
+    """Test image deserialization with filepath fallback."""
+
+    def test_found_by_name(self):
+        import bpy
+
+        node = MagicMock()
+        img = MagicMock()
+        bpy.data.images.get.return_value = img
+
+        deserialize_image(node, {"name": "texture.png"})
+
+        assert node.image == img
+        bpy.data.images.get.assert_called_with("texture.png")
+
+    def test_no_name_does_nothing(self):
+        """Empty data should not attempt to set node.image."""
+
+        class Sentinel:
+            image = None
+
+        node = Sentinel()
+        deserialize_image(node, {})
+        assert node.image is None
+
+    def test_loads_from_filepath_when_name_missing(self):
+        import bpy
+
+        node = MagicMock()
+        loaded_img = MagicMock()
+        bpy.data.images.get.return_value = None
+        bpy.data.images.load.return_value = loaded_img
+
+        deserialize_image(node, {"name": "tex.png", "filepath": "/abs/path/tex.png"})
+
+        bpy.data.images.load.assert_called_once_with("/abs/path/tex.png")
+        assert node.image == loaded_img
+
+    def test_logs_warning_when_filepath_fails(self):
+        import bpy
+
+        node = MagicMock()
+        bpy.data.images.get.return_value = None
+        bpy.data.images.load.side_effect = RuntimeError("File not found")
+
+        # Should not raise
+        deserialize_image(node, {"name": "tex.png", "filepath": "/missing/tex.png"})
+
+    def test_no_filepath_logs_info(self):
+        import bpy
+
+        node = MagicMock()
+        bpy.data.images.get.return_value = None
+
+        # Should not raise
+        deserialize_image(node, {"name": "tex.png"})

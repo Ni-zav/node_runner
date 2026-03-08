@@ -17,6 +17,7 @@ from node_runner.encoding import (
     FORMAT_XML,
 )
 from node_runner.constants import EXPORT_HEADER
+from node_runner.operators import _strip_image_paths
 
 
 class TestEncodeDecode:
@@ -314,10 +315,14 @@ class TestDetectFormat:
 class TestExportImportFlow:
     """End-to-end tests simulating the operator build/strip helpers."""
 
+    FAKE_VERSION = "4.5.0"
+
     def _build_export_string(self, data, export_name, fmt):
         """Mirror the operator helper ``_build_export_string``."""
+        data = dict(data)
+        data["blender_version"] = self.FAKE_VERSION
+
         if fmt in (FORMAT_JSON, FORMAT_XML):
-            data = dict(data)
             data["export_name"] = export_name
             return encode_as(data, fmt)
         encoded = encode_as(data, fmt)
@@ -338,6 +343,7 @@ class TestExportImportFlow:
         assert detected_fmt == fmt
         decoded = decode_as(payload, detected_fmt)
         decoded.pop("export_name", None)
+        decoded.pop("blender_version", None)
         assert decoded == _NODE_DATA
 
     def test_hash_export_has_header(self):
@@ -367,3 +373,59 @@ class TestExportImportFlow:
         export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_XML)
         assert not export_str.startswith("Foo" + EXPORT_HEADER)
         assert export_str.lstrip().startswith("<")
+
+    @pytest.mark.parametrize("fmt", [FORMAT_HASH, FORMAT_JSON, FORMAT_XML])
+    def test_blender_version_embedded(self, fmt):
+        export_str = self._build_export_string(_SIMPLE_DATA, "V", fmt)
+        _, payload = self._strip_header_and_detect(export_str)
+        decoded = decode_as(payload, fmt)
+        assert decoded["blender_version"] == self.FAKE_VERSION
+
+    def test_no_version_in_legacy_data(self):
+        """Data without blender_version should decode cleanly."""
+        encoded = encode(_SIMPLE_DATA)
+        decoded = decode(encoded)
+        assert "blender_version" not in decoded
+
+
+class TestStripImagePaths:
+    """Test _strip_image_paths helper."""
+
+    def test_removes_filepath_from_image_data(self):
+        data = {
+            "nodes": {
+                "TexNode": {
+                    "type": "ShaderNodeTexImage",
+                    "image": {"name": "tex.png", "filepath": "/path/tex.png"},
+                },
+            },
+            "links": [],
+        }
+        _strip_image_paths(data)
+        assert "filepath" not in data["nodes"]["TexNode"]["image"]
+        assert data["nodes"]["TexNode"]["image"]["name"] == "tex.png"
+
+    def test_no_op_when_no_image(self):
+        data = {
+            "nodes": {
+                "Math": {"type": "ShaderNodeMath", "operation": "ADD"},
+            },
+            "links": [],
+        }
+        _strip_image_paths(data)
+        assert data["nodes"]["Math"]["operation"] == "ADD"
+
+    def test_no_op_when_image_has_no_filepath(self):
+        data = {
+            "nodes": {
+                "TexNode": {
+                    "image": {"name": "tex.png"},
+                },
+            },
+        }
+        _strip_image_paths(data)
+        assert data["nodes"]["TexNode"]["image"] == {"name": "tex.png"}
+
+    def test_handles_empty_nodes(self):
+        data = {"nodes": {}}
+        _strip_image_paths(data)  # should not raise
