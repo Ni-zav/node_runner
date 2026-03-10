@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "node_runner"
-version = "1.2.1"
+version = "1.3.9"
 name = "Node Runner"
 tagline = "Import and export nodes as strings"
 maintainer = "Noah Thiering <noah.thiering@gmail.com>"
@@ -21,6 +21,7 @@ paths = [
   "operators.py",
   "constants.py",
   "encoding.py",
+  "node_data.py",
   "serialize.py",
   "deserialize.py",
   "LICENSE",

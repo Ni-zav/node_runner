@@ -9,11 +9,16 @@ import logging
 
 import bpy
 
-from .constants import READONLY_DESERIALIZE_PROPS, SOCKET_BASE_TYPES
+from .constants import (
+    READONLY_DESERIALIZE_PROPS,
+    SOCKET_BASE_TYPES,
+    MODE_CHANGING_PROPS,
+    PAIRED_NODE_TYPES,
+)
 
 log = logging.getLogger(__name__)
 
-#  Helpers
+# Helpers
 
 
 def get_node_socket_base_type(socket_type: str) -> str:
@@ -99,7 +104,7 @@ def create_interface_socket(node_tree, name, description, in_out, socket_type):
     )
 
 
-#  Type-specific deserializers
+# Type-specific deserializers
 
 
 def deserialize_color_ramp(node, data):
@@ -253,7 +258,7 @@ def deserialize_text(data):
     return text
 
 
-#  Input / Output deserializers
+# Input / Output deserializers
 
 
 def deserialize_inputs(node, data, node_data, node_tree, socket_id_map):
@@ -286,7 +291,7 @@ def deserialize_inputs(node, data, node_data, node_tree, socket_id_map):
         ):
             try:
                 node.inputs[i].default_value = value
-            except (TypeError, AttributeError):
+            except (TypeError, AttributeError, ValueError):
                 log.debug("Could not set input %d on '%s'", i, node.name)
 
 
@@ -320,27 +325,30 @@ def deserialize_outputs(node, data, node_data, node_tree, socket_id_map):
         ):
             try:
                 node.outputs[i].default_value = value
-            except (TypeError, AttributeError):
+            except (TypeError, AttributeError, ValueError):
                 log.debug("Could not set output %d on '%s'", i, node.name)
 
 
-#  Node deserializer
+# Node deserializer
 
 
-def deserialize_node(node_data, node_tree, socket_id_map):
+def deserialize_node(node_data, node_tree, socket_id_map, defer_io=False):
     """Create a new node and apply all serialized properties.
 
     Args:
         node_data: dict of serialized properties for one node.
         node_tree: The Blender NodeTree to add the node to.
         socket_id_map: Mutable dict tracking socket identifier remappings.
+        defer_io: If True, skip socket default assignment and return
+            the deferred data as a second element.
 
     Returns:
-        The newly created ``Node``, or ``None`` if the type is undefined.
+        The newly created ``Node`` (or ``None``), or a tuple
+        ``(Node, deferred_io_dict)`` when *defer_io* is True.
     """
     node_type = node_data.get("type", "")
     if node_type == "NodeUndefined":
-        return None
+        return (None, {}) if defer_io else None
 
     new_node = node_tree.nodes.new(type=node_type)
     new_node.label = node_data.get("label", "")
@@ -372,14 +380,27 @@ def deserialize_node(node_data, node_tree, socket_id_map):
         "script": lambda n, v: setattr(n, "script", deserialize_text(v)),
     }
 
-    # Process inputs/outputs LAST so that mode-changing properties
-    # (e.g. operation, blend_type, data_type) are applied first,
-    # giving sockets the correct layout before setting defaults.
+    # Set mode-changing properties first:
+    # These affect what sockets the node exposes and must precede
+    # any socket default value assignment.
+    for prop_name in MODE_CHANGING_PROPS:
+        if prop_name not in node_data or prop_name in READONLY_DESERIALIZE_PROPS:
+            continue
+        try:
+            setattr(new_node, prop_name, node_data[prop_name])
+        except (TypeError, AttributeError, KeyError) as exc:
+            log.debug(
+                "Cannot set mode prop '%s' on '%s': %s", prop_name, new_node.name, exc
+            )
+
+    # Set remaining (non-socket) properties:
     _deferred_io = {}
 
     for prop_name, prop_value in node_data.items():
         if prop_name in READONLY_DESERIALIZE_PROPS:
             continue
+        if prop_name in MODE_CHANGING_PROPS:
+            continue  # Already handled in phase 1
 
         # Defer socket default value assignment
         if prop_name in ("inputs", "outputs"):
@@ -388,8 +409,8 @@ def deserialize_node(node_data, node_tree, socket_id_map):
 
         if prop_name in _prop_handlers:
             _prop_handlers[prop_name](new_node, prop_value)
-        elif prop_name == "parent":
-            # Defer parent assignment to the node tree deserializer
+        elif prop_name in ("parent", "_paired_output"):
+            # Handled at the node-tree level
             pass
         elif prop_name in ("label", "type", "name"):
             continue
@@ -404,14 +425,17 @@ def deserialize_node(node_data, node_tree, socket_id_map):
                     exc,
                 )
 
-    # Now apply deferred socket defaults
-    for prop_name, prop_value in _deferred_io.items():
-        _prop_handlers[prop_name](new_node, prop_value)
+    # Apply deferred socket defaults:
+    if not defer_io:
+        for prop_name, prop_value in _deferred_io.items():
+            _prop_handlers[prop_name](new_node, prop_value)
 
+    if defer_io:
+        return new_node, _deferred_io
     return new_node
 
 
-#  Link deserializer
+# Link deserializer
 
 
 def deserialize_link(node_map, link_data, socket_id_map):
@@ -436,24 +460,52 @@ def deserialize_link(node_map, link_data, socket_id_map):
         )
         return None, None
 
-    out_sock = get_socket_by_identifier(
-        from_node,
-        link_data.get("from_socket_identifier", ""),
-        socket_id_map,
-        "OUTPUT",
-        name=link_data.get("from_socket"),
-    )
-    in_sock = get_socket_by_identifier(
-        to_node,
-        link_data.get("to_socket_identifier", ""),
-        socket_id_map,
-        "INPUT",
-        name=link_data.get("to_socket"),
-    )
+    if "from_socket_index" in link_data:
+        idx = link_data["from_socket_index"]
+        if idx < len(from_node.outputs):
+            out_sock = from_node.outputs[idx]
+        else:
+            out_sock = get_socket_by_identifier(
+                from_node,
+                link_data.get("from_socket_identifier", ""),
+                socket_id_map,
+                "OUTPUT",
+                name=link_data.get("from_socket"),
+            )
+    else:
+        out_sock = get_socket_by_identifier(
+            from_node,
+            link_data.get("from_socket_identifier", ""),
+            socket_id_map,
+            "OUTPUT",
+            name=link_data.get("from_socket"),
+        )
+
+    if "to_socket_index" in link_data:
+        idx = link_data["to_socket_index"]
+        if idx < len(to_node.inputs):
+            in_sock = to_node.inputs[idx]
+        else:
+            in_sock = get_socket_by_identifier(
+                to_node,
+                link_data.get("to_socket_identifier", ""),
+                socket_id_map,
+                "INPUT",
+                name=link_data.get("to_socket"),
+            )
+    else:
+        in_sock = get_socket_by_identifier(
+            to_node,
+            link_data.get("to_socket_identifier", ""),
+            socket_id_map,
+            "INPUT",
+            name=link_data.get("to_socket"),
+        )
+
     return out_sock, in_sock
 
 
-#  Frame handling: topological ordering for nested frames
+# Frame handling: topological ordering for nested frames
 
 
 def _topological_sort_frames(nodes_data):
@@ -490,7 +542,7 @@ def _topological_sort_frames(nodes_data):
     return ordered
 
 
-#  Node tree deserializer
+# Node tree deserializer
 
 
 def deserialize_node_tree(node_tree, data, socket_id_map):
@@ -510,7 +562,7 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
     links_data = data.get("links", [])
     node_map = {}  # old_name -> new Node
 
-    # ---- Phase 1: Create frames in topological (parent-first) order ----
+    # Create frames in topological (parent-first) order:
     frame_order = _topological_sort_frames(nodes_data)
     frame_name_remap = {}  # old_name -> new_name
 
@@ -550,7 +602,7 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
             if loc:
                 frame_node.location = loc
 
-    # ---- Phase 2: Create all non-frame nodes ----
+    # Create all non-frame nodes:
     non_frame_names = [name for name in nodes_data if name not in frame_name_remap]
 
     # Update parent references to new frame names
@@ -559,9 +611,21 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
         if "parent" in nd and nd["parent"] in frame_name_remap:
             nd["parent"] = frame_name_remap[nd["parent"]]
 
+    # Track deferred I/O for paired zone nodes
+    _deferred_io_map = {}  # node_name -> deferred_io dict
+
     for node_name in non_frame_names:
         nd = nodes_data[node_name]
-        new_node = deserialize_node(nd, node_tree, socket_id_map)
+        is_paired = nd.get("type") in PAIRED_NODE_TYPES
+
+        if is_paired:
+            result = deserialize_node(nd, node_tree, socket_id_map, defer_io=True)
+            new_node, deferred_io = result
+            if new_node is not None:
+                _deferred_io_map[node_name] = deferred_io
+        else:
+            new_node = deserialize_node(nd, node_tree, socket_id_map)
+
         if new_node is None:
             continue
         node_map[node_name] = new_node
@@ -580,14 +644,41 @@ def deserialize_node_tree(node_tree, data, socket_id_map):
             loc = nd.get("location")
             if loc is not None:
                 if new_node.parent:
-                    # Old format stored relative location; the parent
-                    # location was added during old deserialization.
-                    # We keep it relative as-is since we already set it.
                     pass
                 else:
                     new_node.location = loc
 
-    # ---- Phase 3: Create links ----
+    # Pair zone nodes (repeat, simulation, etc.):
+    for node_name in non_frame_names:
+        nd = nodes_data[node_name]
+        paired_name = nd.get("_paired_output")
+        if paired_name and node_name in node_map and paired_name in node_map:
+            input_node = node_map[node_name]
+            output_node = node_map[paired_name]
+            if hasattr(input_node, "pair_with_output"):
+                try:
+                    input_node.pair_with_output(output_node)
+                except (RuntimeError, AttributeError) as exc:
+                    log.warning(
+                        "Failed to pair '%s' with '%s': %s",
+                        node_name,
+                        paired_name,
+                        exc,
+                    )
+
+    # Apply deferred I/O for paired nodes:
+    for node_name, deferred_io in _deferred_io_map.items():
+        node = node_map.get(node_name)
+        if node is None:
+            continue
+        nd = nodes_data[node_name]
+        for prop_name, prop_value in deferred_io.items():
+            if prop_name == "inputs":
+                deserialize_inputs(node, prop_value, nd, node_tree, socket_id_map)
+            elif prop_name == "outputs":
+                deserialize_outputs(node, prop_value, nd, node_tree, socket_id_map)
+
+    # Create links:
     links_created = 0
     for link_data in links_data:
         out_sock, in_sock = deserialize_link(node_map, link_data, socket_id_map)

@@ -24,7 +24,7 @@ jobs:
       run: |
         mkdir extension
         cp blender_manifest.toml LICENSE extension/
-        cp __init__.py operators.py constants.py encoding.py serialize.py deserialize.py extension/
+        cp __init__.py operators.py constants.py encoding.py serialize.py deserialize.py node_data.py extension/
         
     - name: Build Blender Extension
       run: cd extension && ../blender/blender --command extension build

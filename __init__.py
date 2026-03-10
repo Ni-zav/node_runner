@@ -1,5 +1,5 @@
 """
-Node Runner — Import & export shader nodes as shareable strings.
+Node Runner - Import & export shader nodes as shareable strings.
 
 Serializes Blender shader node trees to compressed, base64-encoded
 strings that can be shared via text, comments, or documentation.
@@ -8,11 +8,14 @@ strings that can be shared via text, comments, or documentation.
 
 def register():
     """Register all operators and menu entries."""
-    from . import operators
+    from . import operators, node_data
+
+    node_data.refresh()
     operators.register()
 
 
 def unregister():
     """Unregister all operators and menu entries."""
     from . import operators
+
     operators.unregister()

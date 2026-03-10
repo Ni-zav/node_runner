@@ -85,6 +85,41 @@ READONLY_DESERIALIZE_PROPS = frozenset(
     }
 )
 
+# Properties that change the socket layout of a node.
+# These MUST be set before any socket default values are assigned
+# during deserialization, otherwise the socket indices won't match.
+MODE_CHANGING_PROPS = frozenset(
+    {
+        "data_type",
+        "mode",
+        "operation",
+        "blend_type",
+        "input_type",
+        "distribution",
+        "component",
+        "gradient_type",
+        "wave_profile",
+        "wave_type",
+        "coloring",
+        "reduce_type",
+        "feature",
+        "space",
+        "pivot_axis",
+        "transform_type",
+        "color_space",
+        "domain",
+        "interpolation",
+    }
+)
+
+# Paired zone node types: bl_idname to attribute name for the paired output.
+# These nodes must be paired with their output before sockets become valid.
+PAIRED_NODE_TYPES = {
+    "GeometryNodeRepeatInput": "paired_output",
+    "GeometryNodeSimulationInput": "paired_output",
+    "GeometryNodeForeachGeometryElementInput": "paired_output",
+}
+
 # Mapping from specific socket sub-types to base types usable for
 # NodeTreeInterface.new_socket(). Order matters: first match wins.
 SOCKET_BASE_TYPES = [
