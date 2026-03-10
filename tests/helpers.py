@@ -9,12 +9,12 @@ from unittest.mock import MagicMock
 from mathutils import Vector as MockVector
 
 
-
-#  Helper factories
+# Helper factories
 
 
 class MockRNAProperty:
     """Minimal stand-in for ``bpy.types.Property``."""
+
     def __init__(self, identifier, is_readonly=False):
         self.identifier = identifier
         self.is_readonly = is_readonly
@@ -22,6 +22,7 @@ class MockRNAProperty:
 
 class MockSocket:
     """Mock for a NodeSocket with identifier, name, and default_value."""
+
     def __init__(self, name, identifier=None, bl_idname="NodeSocketFloat"):
         self.name = name
         self.identifier = identifier or name
@@ -31,8 +32,16 @@ class MockSocket:
 
 class MockNode:
     """A configurable mock node for testing serialization."""
-    def __init__(self, name="TestNode", bl_idname="ShaderNodeMath", label="",
-                 location=(0, 0), parent=None, **props):
+
+    def __init__(
+        self,
+        name="TestNode",
+        bl_idname="ShaderNodeMath",
+        label="",
+        location=(0, 0),
+        parent=None,
+        **props,
+    ):
         self.name = name
         self.bl_idname = bl_idname
         self.label = label
@@ -59,6 +68,7 @@ class MockNode:
 
 class MockNodeTree:
     """A configurable mock node tree."""
+
     def __init__(self, name="NodeTree", bl_idname="ShaderNodeTree"):
         self.name = name
         self.bl_idname = bl_idname
@@ -69,6 +79,7 @@ class MockNodeTree:
 
 class MockNodeCollection:
     """Mock for NodeTree.nodes."""
+
     def __init__(self):
         self._nodes = {}
 
@@ -103,16 +114,17 @@ class MockNodeCollection:
 
 
 class MockLinkCollection(list):
-    """Mock for NodeTree.links — matches Blender 5.x API.
+    """Mock for NodeTree.links - matches Blender 5.x API.
 
     ``links.new(input_socket, output_socket)``
     """
+
     def new(self, input_socket, output_socket, verify_limits=True):
         link = MagicMock()
         link.from_socket = output_socket  # source / output
-        link.to_socket = input_socket     # destination / input
+        link.to_socket = input_socket  # destination / input
         # Store node references for serialization tests
-        link.from_node = getattr(output_socket, '_node', MagicMock())
-        link.to_node = getattr(input_socket, '_node', MagicMock())
+        link.from_node = getattr(output_socket, "_node", MagicMock())
+        link.to_node = getattr(input_socket, "_node", MagicMock())
         self.append(link)
         return link

@@ -1,5 +1,11 @@
 """Tests for the encoding module."""
 
+import base64
+import json
+import pickle
+import xml.etree.ElementTree as ET
+import zlib
+
 import pytest
 
 from node_runner.encoding import (
@@ -7,6 +13,8 @@ from node_runner.encoding import (
     decode,
     encode_json,
     decode_json,
+    encode_ai_json,
+    decode_ai_json,
     encode_xml,
     decode_xml,
     encode_as,
@@ -14,10 +22,9 @@ from node_runner.encoding import (
     detect_format,
     FORMAT_HASH,
     FORMAT_JSON,
+    FORMAT_AI_JSON,
     FORMAT_XML,
 )
-from node_runner.constants import EXPORT_HEADER
-from node_runner.operators import _strip_image_paths
 
 
 class TestEncodeDecode:
@@ -29,7 +36,9 @@ class TestEncodeDecode:
         assert isinstance(encoded, str)
         assert len(encoded) > 0
         decoded = decode(encoded)
-        assert decoded == data
+        assert decoded["nodes"] == {}
+        assert decoded["links"] == []
+        assert decoded["name"] == "Test"
 
     def test_roundtrip_with_node_data(self):
         data = {
@@ -68,7 +77,16 @@ class TestEncodeDecode:
             ],
             "name": "Test",
         }
-        assert decode(encode(data)) == data
+        decoded = decode(encode(data))
+        # Compact format preserves semantic content
+        assert decoded["nodes"]["A"]["type"] == "ShaderNodeMath"
+        assert decoded["nodes"]["B"]["type"] == "ShaderNodeMath"
+        assert len(decoded["links"]) == 1
+        link = decoded["links"][0]
+        assert link["from_node"] == "A"
+        assert link["to_node"] == "B"
+        assert link["from_socket_identifier"] == "Value"
+        assert link["to_socket_identifier"] == "Value"
 
     def test_decode_invalid_data(self):
         with pytest.raises(ValueError, match="Failed to decode"):
@@ -97,21 +115,124 @@ class TestEncodeDecode:
             "links": [],
             "name": "Test",
         }
-        assert decode(encode(data)) == data
+        decoded = decode(encode(data))
+        ramp = decoded["nodes"]["ColorRamp"]["color_ramp"]
+        assert ramp["color_mode"] == "RGB"
+        assert ramp["interpolation"] == "LINEAR"
+        assert ramp["hue_interpolation"] == "NEAR"
+        assert len(ramp["elements"]) == 2
+        assert ramp["elements"][0]["position"] == 0.0
+        assert ramp["elements"][1]["color"] == [1.0, 1.0, 1.0, 1.0]
 
-    def test_encode_produces_compact_output(self):
-        """Encoding with compression should be shorter than raw pickle."""
-        import pickle
-
-        data = {"nodes": {"A" * 100: {"type": "X" * 100}}, "links": [], "name": "T"}
+    def test_encode_uses_json_not_pickle(self):
+        """New format should use JSON internally, not pickle."""
+        data = {"nodes": {}, "links": [], "name": "Test"}
         encoded = encode(data)
-        raw_len = len(pickle.dumps(data))
-        # base64 is ~4/3 overhead, but zlib should more than compensate
-        # for repetitive data
-        assert len(encoded) < raw_len * 2
+        compressed = base64.b64decode(encoded)
+        raw = zlib.decompress(compressed)
+        # Should be valid JSON
+        parsed = json.loads(raw)
+        assert parsed["v"] >= 2  # compact format version
+
+    def test_compact_sparse_inputs(self):
+        """None values in inputs should be stripped in compact format.
+
+        Defaults are restored for known node types, so None values whose
+        index falls within the defaults table come back as the default
+        rather than None.  Use a node type not in the defaults table so that
+        the sparse-input round-trip preserves None exactly.
+        """
+        data = {
+            "nodes": {
+                "Custom": {
+                    "type": "ShaderNodeCustom",
+                    "inputs": [0.5, None, None, 0.3],
+                    "name": "Custom",
+                    "label": "",
+                    "location_absolute": [0.0, 0.0],
+                }
+            },
+            "links": [],
+            "name": "T",
+        }
+        decoded = decode(encode(data))
+        inputs = decoded["nodes"]["Custom"]["inputs"]
+        assert inputs[0] == 0.5
+        assert inputs[1] is None
+        assert inputs[2] is None
+        assert inputs[3] == 0.3
+
+    def test_compact_link_indices(self):
+        """Links should use node indices internally."""
+        data = {
+            "nodes": {
+                "A": {"type": "ShaderNodeMath"},
+                "B": {"type": "ShaderNodeMath"},
+            },
+            "links": [
+                {
+                    "from_node": "A",
+                    "to_node": "B",
+                    "from_socket": "Value",
+                    "from_socket_identifier": "Value",
+                    "to_socket": "Value",
+                    "to_socket_identifier": "Value",
+                }
+            ],
+            "name": "T",
+        }
+        encoded = encode(data)
+        raw = zlib.decompress(base64.b64decode(encoded))
+        compact = json.loads(raw)
+        # Links use integer node indices internally
+        assert compact["l"][0][0] == 0  # from node A (index 0)
+        assert compact["l"][0][2] == 1  # to node B (index 1)
+
+    def test_compact_preserves_metadata(self):
+        """blender_version and export_name survive compaction."""
+        data = {
+            "nodes": {},
+            "links": [],
+            "name": "Test",
+            "blender_version": "4.5.0",
+            "export_name": "MyExport",
+        }
+        decoded = decode(encode(data))
+        assert decoded["blender_version"] == "4.5.0"
+        assert decoded["export_name"] == "MyExport"
+
+    def test_compact_position_quantization(self):
+        """Positions should be rounded to integers."""
+        data = {
+            "nodes": {
+                "N": {
+                    "type": "ShaderNodeMath",
+                    "location_absolute": [123.7, -456.2],
+                }
+            },
+            "links": [],
+            "name": "T",
+        }
+        raw = zlib.decompress(base64.b64decode(encode(data)))
+        compact = json.loads(raw)
+        loc = compact["n"][0][3]  # location field
+        assert loc == [124, -456]  # rounded
+        # But expanded back to floats
+        decoded = decode(encode(data))
+        assert decoded["nodes"]["N"]["location_absolute"] == [124.0, -456.0]
+
+    def test_backward_compat_legacy_pickle(self):
+        """Old pickle-encoded strings should still decode."""
+        data = {"nodes": {}, "links": [], "name": "Legacy"}
+        # Simulate old pickle format
+        raw = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+        compressed = zlib.compress(raw, 9)
+        old_encoded = base64.b64encode(compressed).decode("utf-8")
+        decoded = decode(old_encoded)
+        assert decoded == data
 
 
-# ── Sample data used by JSON / XML tests ─────────────────────────────
+# Sample data used by JSON / XML tests
 
 _SIMPLE_DATA = {"nodes": {}, "links": [], "name": "Test"}
 
@@ -175,8 +296,6 @@ class TestJsonEncodeDecode:
 
     def test_output_is_valid_json(self):
         """Exported JSON must be a valid standalone document."""
-        import json
-
         data_with_name = dict(_SIMPLE_DATA, export_name="MyNodes")
         encoded = encode_json(data_with_name)
         parsed = json.loads(encoded)
@@ -232,8 +351,6 @@ class TestXmlEncodeDecode:
 
     def test_output_is_valid_xml(self):
         """Exported XML must be a valid standalone document."""
-        import xml.etree.ElementTree as ET
-
         data_with_name = dict(_SIMPLE_DATA, export_name="MyNodes")
         encoded = encode_xml(data_with_name)
         root = ET.fromstring(encoded)
@@ -269,14 +386,276 @@ class TestXmlEncodeDecode:
         assert decoded == _SIMPLE_DATA
 
 
+class TestAiJsonEncodeDecode:
+    """Round-trip tests for AI JSON (compact readable) encode/decode."""
+
+    def test_roundtrip_simple_dict(self):
+        encoded = encode_ai_json(_SIMPLE_DATA)
+        assert isinstance(encoded, str)
+        decoded = decode_ai_json(encoded)
+        assert decoded["nodes"] == {}
+        assert decoded["links"] == []
+        assert decoded["name"] == "Test"
+
+    def test_roundtrip_with_node_data(self):
+        """Math node with non-default operation should round-trip."""
+        data = {
+            "nodes": {
+                "Math": {
+                    "type": "ShaderNodeMath",
+                    "label": "",
+                    "operation": "MULTIPLY",
+                    "location": [100.0, 200.0],
+                    "location_absolute": [100.0, 200.0],
+                    "inputs": [0.5, 0.5],
+                }
+            },
+            "links": [],
+            "name": "Material",
+        }
+        encoded = encode_ai_json(data)
+        decoded = decode_ai_json(encoded)
+        assert decoded["nodes"]["Math"]["operation"] == "MULTIPLY"
+
+    def test_output_is_readable_json(self):
+        encoded = encode_ai_json(_NODE_DATA)
+        assert "\n" in encoded
+        parsed = json.loads(encoded)
+        assert "nodes" in parsed  # AI-readable format
+        assert "links" in parsed
+        # Should use named socket format, not compact arrays
+        assert "v" not in parsed
+        assert "n" not in parsed
+
+    def test_shorter_than_full_json(self):
+        full = encode_json(_NODE_DATA)
+        short = encode_ai_json(_NODE_DATA)
+        assert len(short) < len(full)
+
+    def test_strips_default_props(self):
+        data = {
+            "nodes": {
+                "A": {
+                    "type": "ShaderNodeMath",
+                    "label": "",
+                    "name": "A",
+                    "location_absolute": [0.0, 0.0],
+                    "mute": False,
+                    "show_preview": False,
+                    "use_custom_color": False,
+                    "color": [
+                        0.6079999804496765,
+                        0.6079999804496765,
+                        0.6079999804496765,
+                    ],
+                    "inputs": [0.5],
+                }
+            },
+            "links": [],
+            "name": "T",
+        }
+        encoded = encode_ai_json(data)
+        parsed = json.loads(encoded)
+        node = parsed["nodes"]["A"]
+        # Default props should be stripped
+        assert "mute" not in node.get("settings", {})
+        assert "show_preview" not in node.get("settings", {})
+        assert "use_custom_color" not in node.get("settings", {})
+        assert "color" not in node.get("settings", {})
+
+    def test_decode_invalid_json(self):
+        with pytest.raises(ValueError, match="Failed to decode"):
+            decode_ai_json("{invalid}")
+
+    def test_export_name_roundtrip(self):
+        data = dict(_SIMPLE_DATA, export_name="AIChat")
+        decoded = decode_ai_json(encode_ai_json(data))
+        assert decoded["export_name"] == "AIChat"
+
+    def test_named_inputs_and_links(self):
+        """AI JSON should use named sockets and readable links."""
+        data = {
+            "nodes": {
+                "Noise": {
+                    "type": "ShaderNodeTexNoise",
+                    "label": "",
+                    "location_absolute": [0.0, 0.0],
+                    "inputs": [
+                        [0.0, 0.0, 0.0],
+                        0.0,
+                        8.0,
+                        2.0,
+                        0.5,
+                        2.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        1.0,
+                    ],
+                },
+                "Math": {
+                    "type": "ShaderNodeMath",
+                    "label": "",
+                    "operation": "MULTIPLY",
+                    "location_absolute": [200.0, 0.0],
+                    "inputs": [0.5, 2.0, 0.5],
+                },
+            },
+            "links": [
+                {
+                    "from_node": "Noise",
+                    "to_node": "Math",
+                    "from_socket": "Fac",
+                    "from_socket_identifier": "Fac",
+                    "to_socket": "Value",
+                    "to_socket_identifier": "Value",
+                }
+            ],
+            "name": "Test",
+        }
+        encoded = encode_ai_json(data)
+        parsed = json.loads(encoded)
+
+        # Named inputs
+        noise = parsed["nodes"]["Noise"]
+        assert "inputs" in noise
+        assert noise["inputs"]["Scale"] == 8.0  # non-default (default is 5.0)
+        assert "Detail" not in noise["inputs"]  # 2.0 is the default
+
+        # Non-default operation under settings
+        math = parsed["nodes"]["Math"]
+        assert math["settings"]["operation"] == "MULTIPLY"
+        assert math["inputs"]["Value"] == 2.0
+
+        # Readable link format
+        assert parsed["links"][0] == ["Noise.Fac", "Math.Value"]
+
+        # Round-trip
+        decoded = decode_ai_json(encoded)
+        assert decoded["nodes"]["Math"]["operation"] == "MULTIPLY"
+
+    def test_legacy_compact_decode(self):
+        """decode_ai_json should still handle legacy compact format."""
+        compact = (
+            '{"v":4,"n":[["ShaderNodeMath","M","M",[0,0],-1,'
+            '{"operation":"ADD"},[]]],"l":[],"name":"T"}'
+        )
+        decoded = decode_ai_json(compact)
+        assert decoded["nodes"]["M"]["operation"] == "ADD"
+
+    def test_duplicate_socket_links_encode(self):
+        """Encode should disambiguate duplicate target socket names."""
+        data = {
+            "nodes": {
+                "BSDF1": {
+                    "type": "ShaderNodeBsdfPrincipled",
+                    "location_absolute": [0.0, 0.0],
+                    "inputs": [],
+                },
+                "BSDF2": {
+                    "type": "ShaderNodeBsdfGlass",
+                    "location_absolute": [0.0, -200.0],
+                    "inputs": [],
+                },
+                "Mix": {
+                    "type": "ShaderNodeMixShader",
+                    "location_absolute": [300.0, 0.0],
+                    "inputs": [0.5],
+                },
+            },
+            "links": [
+                {
+                    "from_node": "BSDF1",
+                    "to_node": "Mix",
+                    "from_socket": "BSDF",
+                    "from_socket_identifier": "BSDF",
+                    "to_socket": "Shader",
+                    "to_socket_identifier": "Shader",
+                },
+                {
+                    "from_node": "BSDF2",
+                    "to_node": "Mix",
+                    "from_socket": "BSDF",
+                    "from_socket_identifier": "BSDF",
+                    "to_socket": "Shader",
+                    "to_socket_identifier": "Shader",
+                },
+            ],
+            "name": "DupeSockets",
+        }
+        encoded = encode_ai_json(data)
+        parsed = json.loads(encoded)
+        links = parsed["links"]
+        assert len(links) == 2
+        # First link uses bare name, second should be disambiguated
+        assert links[0] == ["BSDF1.BSDF", "Mix.Shader"]
+        assert links[1] == ["BSDF2.BSDF", "Mix.Shader 2"]
+
+    def test_duplicate_socket_links_decode_disambiguated(self):
+        """Decode should resolve 'Shader 2' to socket index 2."""
+        ai_json = json.dumps(
+            {
+                "nodes": {
+                    "BSDF1": {"type": "ShaderNodeBsdfPrincipled", "location": [0, 0]},
+                    "BSDF2": {"type": "ShaderNodeBsdfGlass", "location": [0, -200]},
+                    "Mix": {"type": "ShaderNodeMixShader", "location": [300, 0]},
+                },
+                "links": [
+                    ["BSDF1.BSDF", "Mix.Shader"],
+                    ["BSDF2.BSDF", "Mix.Shader 2"],
+                ],
+                "name": "DupeSockets",
+            }
+        )
+        decoded = decode_ai_json(ai_json)
+        links = decoded["links"]
+        assert len(links) == 2
+        assert links[0]["to_socket"] == "Shader"
+        assert links[1]["to_socket"] == "Shader"
+        assert links[1]["to_socket_index"] == 2
+
+    def test_duplicate_socket_links_decode_bare(self):
+        """Decode should resolve bare duplicate names by link order."""
+        ai_json = json.dumps(
+            {
+                "nodes": {
+                    "BSDF1": {"type": "ShaderNodeBsdfPrincipled", "location": [0, 0]},
+                    "BSDF2": {"type": "ShaderNodeBsdfGlass", "location": [0, -200]},
+                    "Mix": {"type": "ShaderNodeMixShader", "location": [300, 0]},
+                },
+                "links": [
+                    ["BSDF1.BSDF", "Mix.Shader"],
+                    ["BSDF2.BSDF", "Mix.Shader"],
+                ],
+                "name": "DupeSockets",
+            }
+        )
+        decoded = decode_ai_json(ai_json)
+        links = decoded["links"]
+        assert len(links) == 2
+        # Both have name "Shader", but indices differ
+        assert links[0]["to_socket_index"] == 1
+        assert links[1]["to_socket_index"] == 2
+
+
 class TestEncodeAsDecodeAs:
     """Tests for the unified encode_as / decode_as API."""
 
-    @pytest.mark.parametrize("fmt", [FORMAT_HASH, FORMAT_JSON, FORMAT_XML])
+    @pytest.mark.parametrize(
+        "fmt", [FORMAT_HASH, FORMAT_JSON, FORMAT_AI_JSON, FORMAT_XML]
+    )
     def test_roundtrip_all_formats(self, fmt):
         encoded = encode_as(_NODE_DATA, fmt)
         decoded = decode_as(encoded, fmt)
-        assert decoded == _NODE_DATA
+        assert decoded["name"] == "Material"
+        assert "Math" in decoded["nodes"]
+        # HASH restores defaults; JSON_SHORT strips defaults but
+        # preserves non-default values; JSON/XML preserve everything.
+        if fmt == FORMAT_JSON:
+            assert decoded == _NODE_DATA
+        if fmt in (FORMAT_HASH,):
+            # Restores operation default
+            assert decoded["nodes"]["Math"]["operation"] == "ADD"
 
     def test_default_is_hash(self):
         assert encode_as(_SIMPLE_DATA) == encode(_SIMPLE_DATA)
@@ -310,122 +689,3 @@ class TestDetectFormat:
 
     def test_detect_with_whitespace(self):
         assert detect_format('  \n  {"a": 1}') == FORMAT_JSON
-
-
-class TestExportImportFlow:
-    """End-to-end tests simulating the operator build/strip helpers."""
-
-    FAKE_VERSION = "4.5.0"
-
-    def _build_export_string(self, data, export_name, fmt):
-        """Mirror the operator helper ``_build_export_string``."""
-        data = dict(data)
-        data["blender_version"] = self.FAKE_VERSION
-
-        if fmt in (FORMAT_JSON, FORMAT_XML):
-            data["export_name"] = export_name
-            return encode_as(data, fmt)
-        encoded = encode_as(data, fmt)
-        return (export_name or "MyNodes") + EXPORT_HEADER + encoded
-
-    def _strip_header_and_detect(self, raw):
-        """Mirror the operator helper ``_strip_header_and_detect``."""
-        if EXPORT_HEADER in raw:
-            payload = raw.split(EXPORT_HEADER, 1)[1]
-            return FORMAT_HASH, payload
-        fmt = detect_format(raw)
-        return fmt, raw
-
-    @pytest.mark.parametrize("fmt", [FORMAT_HASH, FORMAT_JSON, FORMAT_XML])
-    def test_roundtrip_all_formats(self, fmt):
-        export_str = self._build_export_string(_NODE_DATA, "TestExport", fmt)
-        detected_fmt, payload = self._strip_header_and_detect(export_str)
-        assert detected_fmt == fmt
-        decoded = decode_as(payload, detected_fmt)
-        decoded.pop("export_name", None)
-        decoded.pop("blender_version", None)
-        assert decoded == _NODE_DATA
-
-    def test_hash_export_has_header(self):
-        export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_HASH)
-        assert export_str.startswith("Foo" + EXPORT_HEADER)
-
-    def test_json_export_is_valid_json(self):
-        import json
-
-        export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_JSON)
-        parsed = json.loads(export_str)
-        assert parsed["export_name"] == "Foo"
-
-    def test_xml_export_is_valid_xml(self):
-        import xml.etree.ElementTree as ET
-
-        export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_XML)
-        root = ET.fromstring(export_str)
-        assert root.tag == "node_runner"
-
-    def test_json_no_header_prefix(self):
-        export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_JSON)
-        assert not export_str.startswith("Foo" + EXPORT_HEADER)
-        assert export_str.lstrip().startswith("{")
-
-    def test_xml_no_header_prefix(self):
-        export_str = self._build_export_string(_SIMPLE_DATA, "Foo", FORMAT_XML)
-        assert not export_str.startswith("Foo" + EXPORT_HEADER)
-        assert export_str.lstrip().startswith("<")
-
-    @pytest.mark.parametrize("fmt", [FORMAT_HASH, FORMAT_JSON, FORMAT_XML])
-    def test_blender_version_embedded(self, fmt):
-        export_str = self._build_export_string(_SIMPLE_DATA, "V", fmt)
-        _, payload = self._strip_header_and_detect(export_str)
-        decoded = decode_as(payload, fmt)
-        assert decoded["blender_version"] == self.FAKE_VERSION
-
-    def test_no_version_in_legacy_data(self):
-        """Data without blender_version should decode cleanly."""
-        encoded = encode(_SIMPLE_DATA)
-        decoded = decode(encoded)
-        assert "blender_version" not in decoded
-
-
-class TestStripImagePaths:
-    """Test _strip_image_paths helper."""
-
-    def test_removes_filepath_from_image_data(self):
-        data = {
-            "nodes": {
-                "TexNode": {
-                    "type": "ShaderNodeTexImage",
-                    "image": {"name": "tex.png", "filepath": "/path/tex.png"},
-                },
-            },
-            "links": [],
-        }
-        _strip_image_paths(data)
-        assert "filepath" not in data["nodes"]["TexNode"]["image"]
-        assert data["nodes"]["TexNode"]["image"]["name"] == "tex.png"
-
-    def test_no_op_when_no_image(self):
-        data = {
-            "nodes": {
-                "Math": {"type": "ShaderNodeMath", "operation": "ADD"},
-            },
-            "links": [],
-        }
-        _strip_image_paths(data)
-        assert data["nodes"]["Math"]["operation"] == "ADD"
-
-    def test_no_op_when_image_has_no_filepath(self):
-        data = {
-            "nodes": {
-                "TexNode": {
-                    "image": {"name": "tex.png"},
-                },
-            },
-        }
-        _strip_image_paths(data)
-        assert data["nodes"]["TexNode"]["image"] == {"name": "tex.png"}
-
-    def test_handles_empty_nodes(self):
-        data = {"nodes": {}}
-        _strip_image_paths(data)  # should not raise

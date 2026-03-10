@@ -1,5 +1,5 @@
 """
-Root-level pytest conftest — installs ``bpy`` and ``mathutils`` mocks
+Root-level pytest conftest - installs ``bpy`` and ``mathutils`` mocks
 into ``sys.modules`` *before* any ``node_runner`` code is imported.
 
 Because this file lives **outside** the ``node_runner`` package, pytest
@@ -11,7 +11,7 @@ import types
 from unittest.mock import MagicMock
 
 
-# ── mathutils mocks ───────────────────────────────────────────────────
+# mathutils mocks
 
 
 class MockVector(list):
@@ -65,7 +65,7 @@ mathutils_mod.Euler = MockEuler
 sys.modules["mathutils"] = mathutils_mod
 
 
-# ── bpy.types stub classes ───────────────────────────────────────────
+# bpy.types stub classes
 
 
 class _TypeBase:
@@ -188,7 +188,7 @@ class NODE_MT_context_menu:
         cls._entries.remove(func)
 
 
-# ── Assemble bpy module ──────────────────────────────────────────────
+# Assemble bpy module
 
 bpy_mod = types.ModuleType("bpy")
 
