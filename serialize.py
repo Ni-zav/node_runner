@@ -11,12 +11,12 @@ import pickle
 import bpy
 import mathutils
 
-from .constants import EXCLUDE_NODE_PROPS, SERIALIZE_READONLY_PROPS
+from .constants import EXCLUDE_NODE_PROPS, SERIALIZE_READONLY_PROPS, PAIRED_NODE_TYPES
 
 log = logging.getLogger(__name__)
 
 
-#  Primitive / math type serializers
+# Primitive / math type serializers
 
 
 def serialize_color(color):
@@ -34,7 +34,7 @@ def serialize_euler(euler):
     return list(euler)
 
 
-#  Complex type serializers
+# Complex type serializers
 
 
 def serialize_color_ramp(node):
@@ -146,7 +146,7 @@ def serialize_text(text):
     }
 
 
-#  Generic attribute dispatcher
+# Generic attribute dispatcher
 
 
 def serialize_attr(node, attr):
@@ -201,7 +201,7 @@ def serialize_attr(node, attr):
     return attr
 
 
-#  Node serialization
+# Node serialization
 
 
 def serialize_node(node):
@@ -265,10 +265,14 @@ def serialize_node(node):
     # Store absolute location for correct nested-frame positioning
     node_dict["location_absolute"] = list(node.location_absolute)
 
+    # Store paired output reference for zone nodes (repeat, simulation, etc.)
+    if node.bl_idname in PAIRED_NODE_TYPES:
+        attr_name = PAIRED_NODE_TYPES[node.bl_idname]
+        paired = getattr(node, attr_name, None)
+        if paired is not None:
+            node_dict["_paired_output"] = paired.name
+
     return node_dict
-
-
-#  Node tree serialization
 
 
 def serialize_node_tree(node_tree, selected_node_names=None):
@@ -313,7 +317,7 @@ def serialize_node_tree(node_tree, selected_node_names=None):
         data["nodes"][node.name] = serialize_node(node)
 
     for link in node_tree.links:
-        # Compare by name — id() is unreliable for bpy_struct wrappers
+        # Compare by name - id() is unreliable for bpy_struct wrappers
         # since Blender may create new Python objects on each access.
         if (
             link.from_node.name in selected_names

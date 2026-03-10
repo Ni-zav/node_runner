@@ -10,6 +10,7 @@ from .constants import EXPORT_HEADER
 from .encoding import (
     FORMAT_HASH,
     FORMAT_JSON,
+    FORMAT_AI_JSON,
     FORMAT_XML,
     encode_as,
     decode_as,
@@ -23,7 +24,12 @@ log = logging.getLogger(__name__)
 # Blender EnumProperty items for format selection.
 _FORMAT_ITEMS = [
     (FORMAT_HASH, "Hash (Base64)", "Compressed base64-encoded string (default)"),
-    (FORMAT_JSON, "JSON", "Human-readable JSON"),
+    (FORMAT_JSON, "JSON", "Human-readable JSON (verbose)"),
+    (
+        FORMAT_AI_JSON,
+        "AI JSON",
+        "Compact readable JSON – ideal for AI / chat sharing",
+    ),
     (FORMAT_XML, "XML", "Human-readable XML"),
 ]
 
@@ -34,7 +40,7 @@ def _blender_version_string():
     return f"{v[0]}.{v[1]}.{v[2]}"
 
 
-#  Addon preferences
+# Addon preferences
 
 
 class NODE_RUNNER_preferences(bpy.types.AddonPreferences):
@@ -66,7 +72,7 @@ def _get_prefs(context):
     return None
 
 
-#  Shared helpers
+# Shared helpers
 
 
 def _strip_image_paths(data):
@@ -95,7 +101,7 @@ def _build_export_string(data, export_name, fmt, include_image_paths=True):
     if not include_image_paths:
         _strip_image_paths(data)
 
-    if fmt in (FORMAT_JSON, FORMAT_XML):
+    if fmt in (FORMAT_JSON, FORMAT_AI_JSON, FORMAT_XML):
         data["export_name"] = export_name
         return encode_as(data, fmt)
 
@@ -222,7 +228,7 @@ def _apply_import(operator, context, data, mouse_x=None, mouse_y=None):
     return {"FINISHED"}
 
 
-#  Export operator
+# Export operator
 
 
 class NODE_RUNNER_OT_export(bpy.types.Operator):
@@ -286,7 +292,7 @@ class NODE_RUNNER_OT_export(bpy.types.Operator):
         )
         self.report(
             {"INFO"},
-            f"Exported '{self.export_name}' as {fmt_label} — copied to clipboard",
+            f"Exported '{self.export_name}' as {fmt_label} - copied to clipboard",
         )
         return {"FINISHED"}
 
@@ -300,7 +306,7 @@ class NODE_RUNNER_OT_export(bpy.types.Operator):
         layout.prop(self, "include_image_paths", icon="IMAGE_DATA")
 
 
-#  Import operators
+# Import operators
 
 
 class NODE_RUNNER_OT_import(bpy.types.Operator):
@@ -314,7 +320,7 @@ class NODE_RUNNER_OT_import(bpy.types.Operator):
         name="From Clipboard",
         default=True,
         description="Read node data directly from the clipboard "
-        "(supports hash, JSON, and XML — auto-detected)",
+        "(supports hash, JSON, and XML - auto-detected)",
     )  # type: ignore
 
     node_runner_import_field: bpy.props.StringProperty(
@@ -400,7 +406,7 @@ class NODE_RUNNER_OT_paste(bpy.types.Operator):
         return _do_import(self, context, raw, mouse_x, mouse_y)
 
 
-#  Version-mismatch confirmation
+# Version-mismatch confirmation
 
 
 class NODE_RUNNER_OT_confirm_import(bpy.types.Operator):
@@ -441,7 +447,7 @@ class NODE_RUNNER_OT_confirm_import(bpy.types.Operator):
         return _apply_import(self, context, data, mouse[0], mouse[1])
 
 
-#  Context menu (submenu)
+# Context menu (submenu)
 
 
 class NODE_RUNNER_MT_menu(bpy.types.Menu):
@@ -476,7 +482,7 @@ def menu_draw(self, context):
     self.layout.menu(NODE_RUNNER_MT_menu.bl_idname, icon="NODE")
 
 
-#  Registration
+# Registration
 
 
 _classes = (
