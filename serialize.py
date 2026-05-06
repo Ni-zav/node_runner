@@ -235,23 +235,42 @@ def serialize_node(node):
 
         # Group input/output socket ordering
         if node.bl_idname in ("NodeGroupInput", "NodeGroupOutput"):
+            tree = getattr(node, "id_data", None)
+            iface_by_id = {}
+            iface_items = getattr(getattr(tree, "interface", None), "items_tree", None)
+            if iface_items is not None:
+                for item in iface_items:
+                    if getattr(item, "item_type", None) == "SOCKET":
+                        iface_by_id[item.identifier] = item
+
+            def _socket_entry(s):
+                entry = {
+                    "type": s.bl_idname,
+                    "name": s.name,
+                    "identifier": s.identifier,
+                }
+                iface = iface_by_id.get(s.identifier)
+                if iface is not None and hasattr(iface, "default_value"):
+                    dv = iface.default_value
+                    # Skip data-block references (collections, objects,
+                    # materials, images) — they don't survive round-trip
+                    # across files and would deserialize to None anyway.
+                    if dv is not None and not isinstance(dv, bpy.types.ID):
+                        try:
+                            entry["default"] = serialize_attr(node, dv)
+                        except (TypeError, ValueError):
+                            pass
+                return entry
+
             if prop_name == "inputs":
                 node_dict["input_order"] = [
-                    {
-                        "type": s.bl_idname,
-                        "name": s.name,
-                        "identifier": s.identifier,
-                    }
+                    _socket_entry(s)
                     for s in node.inputs
                     if s.bl_idname != "NodeSocketVirtual"
                 ]
             if prop_name == "outputs":
                 node_dict["output_order"] = [
-                    {
-                        "type": s.bl_idname,
-                        "name": s.name,
-                        "identifier": s.identifier,
-                    }
+                    _socket_entry(s)
                     for s in node.outputs
                     if s.bl_idname != "NodeSocketVirtual"
                 ]

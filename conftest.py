@@ -80,6 +80,10 @@ class ShaderNodeTree(_TypeBase):
     pass
 
 
+class GeometryNodeTree(_TypeBase):
+    pass
+
+
 class ColorMapping(_TypeBase):
     pass
 
@@ -196,6 +200,7 @@ bpy_types = types.ModuleType("bpy.types")
 for _name, _cls in [
     ("ColorRamp", ColorRamp),
     ("ShaderNodeTree", ShaderNodeTree),
+    ("GeometryNodeTree", GeometryNodeTree),
     ("ColorMapping", ColorMapping),
     ("TexMapping", TexMapping),
     ("CurveMapping", CurveMapping),

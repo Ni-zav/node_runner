@@ -644,42 +644,25 @@ INPUT_NAMES = dict(_FALLBACK_INPUT_NAMES)
 OUTPUT_NAMES = dict(_FALLBACK_OUTPUT_NAMES)
 
 
-def refresh():
-    """Query Blender for current node defaults.
+def _introspect_tree(bpy, tree, prefix):
+    """Walk ``bpy.types`` for node classes whose name starts with *prefix*,
+    instantiate each in *tree*, and read default input values, socket
+    names, and property defaults.
 
-    Call this at addon registration.  Discovers all ShaderNode types,
-    creates temporary instances, and reads their default input values,
-    socket names, and property defaults.  The module-level dicts
-    ``NODE_DEFAULTS``, ``INPUT_NAMES``, and ``OUTPUT_NAMES`` are updated
-    in place so existing imports see the fresh data.
+    Returns ``(defaults, input_names, output_names)`` dicts keyed by
+    ``bl_idname``.
     """
-    try:
-        import bpy
-    except ImportError:
-        return
-
-    try:
-        mat = bpy.data.materials.new("_nr_tmp")
-    except (RuntimeError, AttributeError):
-        return
-
-    mat.use_nodes = True
-    tree = mat.node_tree
-    for n in list(tree.nodes):
-        tree.nodes.remove(n)
-
     skip = EXCLUDE_NODE_PROPS | _COMMON_NODE_PROPS
 
-    # Discover all ShaderNode types from bpy.types
     node_types = sorted(
         name
         for name in dir(bpy.types)
-        if name.startswith("ShaderNode") and name != "ShaderNode"
+        if name.startswith(prefix) and name != prefix
     )
 
-    new_defaults = {}
-    new_input_names = {}
-    new_output_names = {}
+    defaults = {}
+    input_names = {}
+    output_names = {}
 
     for ntype in node_types:
         try:
@@ -687,26 +670,30 @@ def refresh():
         except (RuntimeError, ValueError):
             continue
 
-        # Input defaults and names
         in_defaults = []
         in_names = []
         for inp in node.inputs:
             in_names.append(inp.name)
             if hasattr(inp, "default_value"):
                 v = inp.default_value
-                if hasattr(v, "__len__"):
-                    in_defaults.append([round(float(x), 6) for x in v])
+                if isinstance(v, str):
+                    in_defaults.append(v)
                 elif isinstance(v, float):
                     in_defaults.append(round(v, 6))
+                elif isinstance(v, (int, bool)):
+                    in_defaults.append(v)
+                elif hasattr(v, "__len__"):
+                    try:
+                        in_defaults.append([round(float(x), 6) for x in v])
+                    except (TypeError, ValueError):
+                        in_defaults.append(None)
                 else:
                     in_defaults.append(v)
             else:
                 in_defaults.append(None)
 
-        # Output names
         out_names = [o.name for o in node.outputs]
 
-        # Node-type-specific property defaults
         props = {}
         for prop in node.bl_rna.properties:
             key = prop.identifier
@@ -733,15 +720,83 @@ def refresh():
         if props:
             entry["props"] = props
 
-        new_defaults[ntype] = entry
+        defaults[ntype] = entry
         if in_names:
-            new_input_names[ntype] = in_names
+            input_names[ntype] = in_names
         if out_names:
-            new_output_names[ntype] = out_names
+            output_names[ntype] = out_names
 
-        tree.nodes.remove(node)
+        try:
+            tree.nodes.remove(node)
+        except (RuntimeError, ReferenceError):
+            # Some zone-paired nodes auto-remove their partner; ignore.
+            pass
 
-    bpy.data.materials.remove(mat)
+    return defaults, input_names, output_names
+
+
+def refresh():
+    """Query Blender for current node defaults.
+
+    Call this at addon registration.  Discovers all ShaderNode and
+    GeometryNode types, creates temporary instances, and reads their
+    default input values, socket names, and property defaults.  The
+    module-level dicts ``NODE_DEFAULTS``, ``INPUT_NAMES``, and
+    ``OUTPUT_NAMES`` are updated in place so existing imports see the
+    fresh data.
+    """
+    try:
+        import bpy
+    except ImportError:
+        return
+
+    new_defaults = {}
+    new_input_names = {}
+    new_output_names = {}
+
+    # Shader nodes — instantiated inside a temporary material's node tree.
+    mat = None
+    try:
+        mat = bpy.data.materials.new("_nr_tmp_shader")
+    except (RuntimeError, AttributeError):
+        mat = None
+
+    if mat is not None:
+        try:
+            mat.use_nodes = True
+            tree = mat.node_tree
+            for n in list(tree.nodes):
+                tree.nodes.remove(n)
+            d, i, o = _introspect_tree(bpy, tree, "ShaderNode")
+            new_defaults.update(d)
+            new_input_names.update(i)
+            new_output_names.update(o)
+        finally:
+            try:
+                bpy.data.materials.remove(mat)
+            except (RuntimeError, AttributeError):
+                pass
+
+    # Geometry nodes — instantiated inside a temporary GeometryNodeTree.
+    gn_tree = None
+    try:
+        gn_tree = bpy.data.node_groups.new("_nr_tmp_gn", "GeometryNodeTree")
+    except (RuntimeError, AttributeError, TypeError):
+        gn_tree = None
+
+    if gn_tree is not None:
+        try:
+            for n in list(gn_tree.nodes):
+                gn_tree.nodes.remove(n)
+            d, i, o = _introspect_tree(bpy, gn_tree, "GeometryNode")
+            new_defaults.update(d)
+            new_input_names.update(i)
+            new_output_names.update(o)
+        finally:
+            try:
+                bpy.data.node_groups.remove(gn_tree)
+            except (RuntimeError, AttributeError):
+                pass
 
     if not new_defaults:
         return  # Query produced nothing, keep fallback tables
