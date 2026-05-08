@@ -278,6 +278,14 @@ def deserialize_inputs(node, data, node_data, node_tree, socket_id_map):
                     get_node_socket_base_type(inp["type"]),
                 )
                 socket_id_map[inp["identifier"]] = iface_socket.identifier
+                if "default" in inp and hasattr(iface_socket, "default_value"):
+                    try:
+                        iface_socket.default_value = inp["default"]
+                    except (TypeError, AttributeError, ValueError):
+                        log.debug(
+                            "Could not set default for interface input '%s'",
+                            inp.get("name"),
+                        )
         return
 
     if not hasattr(node, "inputs"):
@@ -312,6 +320,14 @@ def deserialize_outputs(node, data, node_data, node_tree, socket_id_map):
                     get_node_socket_base_type(out["type"]),
                 )
                 socket_id_map[out["identifier"]] = iface_socket.identifier
+                if "default" in out and hasattr(iface_socket, "default_value"):
+                    try:
+                        iface_socket.default_value = out["default"]
+                    except (TypeError, AttributeError, ValueError):
+                        log.debug(
+                            "Could not set default for interface output '%s'",
+                            out.get("name"),
+                        )
         return
 
     if not hasattr(node, "outputs"):
