@@ -9,7 +9,7 @@ bl_info = {
     "name": "Node Runner",
     "description": "Import and export nodes as strings",
     "author": "Noah Thiering <noah.thiering@gmail.com>",
-    "version": (1, 3, 9),
+    "version": (1, 4, 1),
     "blender": (4, 5, 0),
     "category": "Node",
 }

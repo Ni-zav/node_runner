@@ -6,7 +6,7 @@ using the same mock infrastructure as the shader-node tests.
 
 from unittest.mock import MagicMock
 
-from tests.helpers import MockNode, MockNodeTree, MockSocket
+from tests.helpers import MockNode, MockNodeTree
 
 from node_runner.serialize import serialize_node_tree
 from node_runner.encoding import (
@@ -29,8 +29,8 @@ class TestSerializeGeometryTree:
         result = serialize_node_tree(tree)
         assert result["tree_type"] == "GeometryNodeTree"
         assert result["name"] == "Geo"
-        assert result["nodes"] == {}
-        assert result["links"] == []
+        assert not result["nodes"]
+        assert not result["links"]
 
     def test_simple_set_position_graph(self):
         tree = MockNodeTree(name="Geo", bl_idname="GeometryNodeTree")

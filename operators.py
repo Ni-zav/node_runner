@@ -456,7 +456,7 @@ def _apply_import(
 
 def _format_extension(fmt):
     """Return the conventional file extension (with dot) for *fmt*."""
-    if fmt == FORMAT_JSON or fmt == FORMAT_AI_JSON:
+    if fmt in (FORMAT_JSON, FORMAT_AI_JSON):
         return ".json"
     if fmt == FORMAT_XML:
         return ".xml"
